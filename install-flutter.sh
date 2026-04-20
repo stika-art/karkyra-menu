@@ -11,4 +11,4 @@ export PATH="$PATH:`pwd`/flutter/bin"
 # 3. Принудительно скачиваем зависимости и собираем Web
 flutter config --enable-web
 flutter pub get
-flutter build web --release
+flutter build web --release --web-renderer canvaskit
