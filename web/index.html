@@ -37,12 +37,18 @@
         link.href = 'manifest.json';
         document.head.appendChild(link);
 
-        // Регистрируем service worker для админки через flutter bootstrap
-        // (современный способ — flutter.js сам зарегистрирует SW)
         var adminMeta = document.createElement('meta');
         adminMeta.name = 'flutter-web-renderer';
         adminMeta.content = 'canvaskit';
         document.head.appendChild(adminMeta);
+
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.register('pwa_sw.js').then((registration) => {
+            console.log('PWA ServiceWorker registered with scope:', registration.scope);
+          }).catch((error) => {
+            console.log('ServiceWorker registration failed:', error);
+          });
+        }
 
         // Заголовок страницы
         document.title = 'Каркыра — Админ';
