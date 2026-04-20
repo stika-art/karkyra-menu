@@ -201,7 +201,7 @@ class _OrdersScreenState extends State<OrdersScreen>
           ),
           Expanded(
             child: Text(
-              'Блюдо ID: ${item['menu_item_id']?.toString().substring(0, 8)}...',
+              'Блюдо ID: ${(item['menu_item_id']?.toString().length ?? 0) > 8 ? item['menu_item_id'].toString().substring(0, 8) + '...' : item['menu_item_id'].toString()}',
               style: GoogleFonts.outfit(color: Colors.white70, fontSize: 14),
             ),
           ),
