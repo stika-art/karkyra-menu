@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -6,218 +7,193 @@ import '../models/cart_item.dart';
 class CartProvider with ChangeNotifier {
   final String tableId;
   String? _deviceId;
-  int? _myGuestNumber;
-  List<Map<String, dynamic>> _participants = [];
+
   List<CartItem> _items = [];
+  List<Map<String, dynamic>> _participants = [];
   bool _isLoading = true;
   String? _errorMessage;
-  
-  // Session properties
-  String _sessionStatus = 'ordering'; // 'ordering', 'confirmed', 'locked'
-  DateTime? _confirmedAt;
+
+  // Список ID, удалённых локально — фильтруем их из КАЖДОГО обновления стрима
+  final Set<String> _deletedIds = {};
+
+  StreamSubscription? _cartSub;
+  StreamSubscription? _participantSub;
 
   CartProvider({required this.tableId}) {
-    _initProvider();
+    _init();
   }
 
-  String get deviceId => _deviceId ?? '';
-  String get sessionStatus => _sessionStatus;
-  DateTime? get confirmedAt => _confirmedAt;
-
-  bool get isLocked => false; // Блокировка отключена пользователем
-
-  Future<void> _initProvider() async {
-    await _initDeviceId();
-    await _initGuestRegistration();
-    _initRealtimeSubscription();
-    _initSessionSubscription();
-  }
-
-  // Загружаем ID из памяти или создаем новый
-  Future<void> _initDeviceId() async {
-    final prefs = await SharedPreferences.getInstance();
-    _deviceId = prefs.getString('device_id');
-    if (_deviceId == null) {
-      _deviceId = DateTime.now().millisecondsSinceEpoch.toString();
-      await prefs.setString('device_id', _deviceId!);
-    }
-  }
-
-  // Геттеры для UI
   List<CartItem> get items => _items;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
-  int? get myGuestNumber => _myGuestNumber;
+  String get deviceId => _deviceId ?? '';
   List<Map<String, dynamic>> get participants => _participants;
-  int get totalItems => _items.fold(0, (sum, item) => sum + item.quantity);
+  int get totalItems => _items.length;
 
-  // Регистрация гостя через RPC функцию
-  Future<void> _initGuestRegistration() async {
-    try {
-      final number = await Supabase.instance.client
-          .rpc('get_guest_number', params: {
-            'p_table_id': tableId,
-            'p_device_id': deviceId,
-          });
-      _myGuestNumber = number;
-      _initParticipantsSubscription();
-    } catch (e) {
-      debugPrint('Error registering guest: $e');
-    }
+  int? get myGuestNumber {
+    if (_deviceId == null) return null;
+    final me = _participants.firstWhere(
+      (p) => p['device_id'] == _deviceId,
+      orElse: () => {},
+    );
+    return me['guest_number'];
   }
 
-  void _initParticipantsSubscription() {
-    Supabase.instance.client
+  Future<void> _init() async {
+    final prefs = await SharedPreferences.getInstance();
+    _deviceId = prefs.getString('device_id');
+    if (_deviceId == null) {
+      _deviceId = 'u_${DateTime.now().millisecondsSinceEpoch}';
+      await prefs.setString('device_id', _deviceId!);
+    }
+
+    try {
+      await Supabase.instance.client.rpc('get_guest_number', params: {
+        'p_table_id': tableId,
+        'p_device_id': _deviceId,
+      });
+    } catch (_) {}
+
+    _startStreams();
+  }
+
+  void _startStreams() {
+    _cartSub?.cancel();
+    _cartSub = Supabase.instance.client
+        .from('orders_new')
+        .stream(primaryKey: ['id'])
+        .eq('table_id', tableId)
+        .listen((data) {
+          // ВСЕГДА фильтруем удалённые ID, независимо от причины обновления стрима
+          _items = data
+              .map((json) => CartItem.fromJson(json))
+              .where((item) => !_deletedIds.contains(item.id))
+              .toList();
+          _items.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+          _isLoading = false;
+          notifyListeners();
+        });
+
+    _participantSub?.cancel();
+    _participantSub = Supabase.instance.client
         .from('table_participants')
         .stream(primaryKey: ['id'])
         .eq('table_id', tableId)
-        .handleError((error) {
-          debugPrint('Participants stream error: $error');
-          // Попытка переподключения при ошибке
-          Future.delayed(const Duration(seconds: 5), () {
-            _initParticipantsSubscription();
-          });
-        })
         .listen((data) {
           _participants = data;
           notifyListeners();
         });
   }
 
-  void _initSessionSubscription() {
-    Supabase.instance.client
-        .from('table_sessions')
-        .stream(primaryKey: ['table_id'])
-        .eq('table_id', tableId)
-        .handleError((error) {
-          debugPrint('Session stream error: $error');
-          // Попытка переподключения при ошибке
-          Future.delayed(const Duration(seconds: 5), () {
-            _initSessionSubscription();
-          });
-        })
-        .listen((data) {
-          if (data.isNotEmpty) {
-            _sessionStatus = data.first['status'];
-            final confirmedStr = data.first['confirmed_at'];
-            if (confirmedStr != null) {
-              _confirmedAt = DateTime.parse(confirmedStr);
-            }
-          } else {
-            _sessionStatus = 'ordering';
-            _confirmedAt = null;
-          }
-          notifyListeners();
+  Future<void> addToCart(String menuItemId, int quantity) async {
+    try {
+      final existingIndex = _items.indexWhere(
+        (it) => it.menuItemId == menuItemId && it.status == 'ordering',
+      );
+
+      if (existingIndex != -1) {
+        await Supabase.instance.client
+            .from('orders_new')
+            .update({'quantity': _items[existingIndex].quantity + quantity})
+            .eq('id', _items[existingIndex].id);
+      } else {
+        await Supabase.instance.client.from('orders_new').insert({
+          'table_id': tableId,
+          'menu_item_id': menuItemId,
+          'quantity': quantity,
+          'added_by': _deviceId,
+          'status': 'ordering',
         });
+      }
+    } catch (e) {
+      _showError("Ошибка добавления");
+    }
   }
 
-  // Основная подписка на корзину (единственный источник данных)
-  void _initRealtimeSubscription() {
-    Supabase.instance.client
-        .from('cart_items')
-        .stream(primaryKey: ['id'])
-        .eq('table_id', tableId)
-        .handleError((error) {
-          _errorMessage = "Проблема с подключением к серверу. Попытка восстановиться...";
-          notifyListeners();
-          // Пытаемся переподключиться через 3 секунды при ошибке
-          Future.delayed(const Duration(seconds: 3), () {
-            _initRealtimeSubscription();
-          });
-        })
-        .listen((List<Map<String, dynamic>> data) {
-          _items = data.map((json) => CartItem.fromJson(json)).toList();
-          _isLoading = false;
-          _errorMessage = null;
-          notifyListeners();
-        });
+  Future<void> removeFromCart(String id) async {
+    // 1. Добавляем в список удалённых — стрим больше никогда не покажет этот ID
+    _deletedIds.add(id);
+
+    // 2. Убираем из текущего списка
+    _items.removeWhere((it) => it.id == id);
+    notifyListeners();
+
+    // 3. Пытаемся удалить из базы (если база отказывает — фильтр всё равно скрывает)
+    try {
+      await Supabase.instance.client
+          .from('orders_new')
+          .delete()
+          .eq('id', id);
+      debugPrint('DB delete sent for $id');
+    } catch (e) {
+      debugPrint('DB delete error for $id: $e');
+      // Не возвращаем — ID остаётся в _deletedIds и не будет показан
+    }
   }
 
   Future<void> confirmOrder() async {
     try {
-      await Supabase.instance.client.rpc('confirm_table_order', params: {
-        'p_table_id': tableId,
+      await Supabase.instance.client
+          .from('orders_new')
+          .update({'status': 'confirmed'})
+          .eq('table_id', tableId)
+          .eq('status', 'ordering');
+
+      await Supabase.instance.client.from('table_sessions').upsert({
+        'table_id': tableId,
+        'status': 'confirmed',
       });
     } catch (e) {
-      debugPrint('Error confirming order: $e');
+      _showError("Ошибка подтверждения");
     }
   }
 
-  // Метод для административного сброса стола (для тестов)
   Future<void> clearTable() async {
+    _deletedIds.clear();
+    _items.clear();
+    notifyListeners();
     try {
-      _isLoading = true;
-      notifyListeners();
-
-      // 1. Очищаем корзину
       await Supabase.instance.client
-          .from('cart_items')
+          .from('orders_new')
           .delete()
           .eq('table_id', tableId);
+    } catch (e) {
+      _showError("Ошибка очистки");
+    }
+  }
 
-      // 2. Сбрасываем сессию
+  Future<void> updateQuantity(String id, int newQuantity) async {
+    try {
       await Supabase.instance.client
-          .from('table_sessions')
-          .update({
-            'status': 'ordering',
-            'confirmed_at': null,
-          })
-          .eq('table_id', tableId);
+          .from('orders_new')
+          .update({'quantity': newQuantity})
+          .eq('id', id);
+    } catch (e) {
+      _showError("Ошибка обновления");
+    }
+  }
 
-      _isLoading = false;
+  Future<void> removeItem(String id) => removeFromCart(id);
+
+  void clearCartLocally() {
+    _items.clear();
+    _deletedIds.clear();
+    notifyListeners();
+  }
+
+  void _showError(String msg) {
+    _errorMessage = msg;
+    notifyListeners();
+    Future.delayed(const Duration(seconds: 3), () {
       _errorMessage = null;
       notifyListeners();
-    } catch (e) {
-      debugPrint('Error clearing table: $e');
-      _isLoading = false;
-      notifyListeners();
-    }
+    });
   }
 
-  // Добавление в корзину
-  Future<void> addToCart(String menuItemId, int quantity) async {
-    try {
-      final existingIndex = _items.indexWhere(
-        (item) => item.menuItemId == menuItemId && item.addedBy == deviceId
-      );
-      
-      if (existingIndex != -1) {
-        final newQuantity = _items[existingIndex].quantity + quantity;
-        await Supabase.instance.client
-            .from('cart_items')
-            .update({'quantity': newQuantity})
-            .eq('id', _items[existingIndex].id);
-      } else {
-        await Supabase.instance.client
-            .from('cart_items')
-            .insert({
-              'menu_item_id': menuItemId,
-              'quantity': quantity,
-              'table_id': tableId,
-              'added_by': deviceId,
-            });
-      }
-    } catch (e) {
-      debugPrint('Error adding to cart: $e');
-    }
-  }
-
-  // Удаление
-  Future<void> removeFromCart(String cartItemId) async {
-    final index = _items.indexWhere((item) => item.id == cartItemId);
-    if (index != -1) {
-      final removedItem = _items.removeAt(index);
-      notifyListeners();
-
-      try {
-        await Supabase.instance.client
-            .from('cart_items')
-            .delete()
-            .eq('id', cartItemId);
-      } catch (e) {
-        _items.insert(index, removedItem);
-        notifyListeners();
-      }
-    }
+  @override
+  void dispose() {
+    _cartSub?.cancel();
+    _participantSub?.cancel();
+    super.dispose();
   }
 }

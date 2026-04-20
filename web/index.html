@@ -18,14 +18,56 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="Premium QR Menu for Karkyra Restaurant">
-  <meta name="theme-color" content="#000000">
   <meta name="flutter-web-renderer" content="canvaskit">
+
+  <!-- Для гостей: полное отключение PWA (нет кэша, нет "Установить") -->
+  <!-- Для админки: PWA включается только при ?admin в URL -->
+  <script>
+    (function() {
+      const isAdmin = new URLSearchParams(window.location.search).has('admin');
+      if (isAdmin) {
+        // Для админки — добавляем meta для PWA и manifest
+        var meta = document.createElement('meta');
+        meta.name = 'theme-color';
+        meta.content = '#141414';
+        document.head.appendChild(meta);
+
+        var link = document.createElement('link');
+        link.rel = 'manifest';
+        link.href = 'manifest.json';
+        document.head.appendChild(link);
+
+        // Регистрируем service worker для админки через flutter bootstrap
+        // (современный способ — flutter.js сам зарегистрирует SW)
+        var adminMeta = document.createElement('meta');
+        adminMeta.name = 'flutter-web-renderer';
+        adminMeta.content = 'canvaskit';
+        document.head.appendChild(adminMeta);
+
+        // Заголовок страницы
+        document.title = 'Каркыра — Админ';
+      } else {
+        // Для гостей — НЕ регистрируем service worker,
+        // активно удаляем старые регистрации если есть
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then(function(registrations) {
+            for (var r of registrations) { r.unregister(); }
+          });
+        }
+        // Запрет кэширования для гостей
+        var noCache = document.createElement('meta');
+        noCache.httpEquiv = 'Cache-Control';
+        noCache.content = 'no-cache, no-store, must-revalidate';
+        document.head.appendChild(noCache);
+
+        document.title = 'Каркыра — Ресто-Чайхана';
+      }
+    })();
+  </script>
 
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <title>Karkyra - Premium Menu</title>
 </head>
 <body>
   <script src="flutter_bootstrap.js" async></script>

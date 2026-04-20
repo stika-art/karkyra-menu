@@ -38,7 +38,10 @@ dependencies:
   video_player: ^2.8.2
   supabase_flutter: ^2.3.4
   provider: ^6.1.2
-  shared_preferences: ^2.2.3
+  shared_preferences: ^2.5.5
+  file_picker: ^8.1.2
+  http: ^1.2.1
+  visibility_detector: ^0.4.0+2
 
 dev_dependencies:
   flutter_test:

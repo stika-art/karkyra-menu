@@ -5,6 +5,7 @@ class CartItem {
   final String tableId;
   final String addedBy;
   final DateTime createdAt;
+  final String status; // 'ordering', 'confirmed'
 
   CartItem({
     required this.id,
@@ -13,6 +14,7 @@ class CartItem {
     required this.tableId,
     required this.addedBy,
     required this.createdAt,
+    this.status = 'ordering',
   });
 
   factory CartItem.fromJson(Map<String, dynamic> json) {
@@ -23,6 +25,7 @@ class CartItem {
       tableId: json['table_id'],
       addedBy: json['added_by'] ?? 'unknown',
       createdAt: DateTime.parse(json['created_at']),
+      status: json['status'] ?? 'ordering',
     );
   }
 
@@ -32,6 +35,7 @@ class CartItem {
       'quantity': quantity,
       'table_id': tableId,
       'added_by': addedBy,
+      'status': status,
     };
   }
 }

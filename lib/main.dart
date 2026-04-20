@@ -6,11 +6,19 @@ import 'package:video_player/video_player.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'theme/app_theme.dart';
-import 'data/mock_data.dart';
+// import 'data/mock_data.dart';
+import 'package:visibility_detector/visibility_detector.dart';
+List<Category> get categories => MenuDataService.categories;
+List<MenuItem> get menuItems => MenuDataService.items;
 import 'models/menu_item.dart';
 import 'models/category.dart';
 import 'services/cart_provider.dart';
 import 'models/cart_item.dart';
+import 'admin/admin_app.dart';
+import 'guest/delivery_screen.dart';
+import 'services/settings_service.dart';
+import 'services/menu_data_service.dart';
+import 'services/favorites_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -21,6 +29,12 @@ void main() async {
     anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZnemRwYndjZW5ja21qdGdmdmZ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2NDkxODAsImV4cCI6MjA5MjIyNTE4MH0.pFmPP9A9Tov4b6URS-LP5b3lYyB0fVXTKDvLY_MR120',
   );
 
+  // Загружаем настройки и меню параллельно
+  await Future.wait([
+    SettingsService.load(),
+    MenuDataService.load(),
+  ]);
+
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.black,
@@ -28,30 +42,41 @@ void main() async {
     ),
   );
   
-  // Извлекаем номер стола из URL (?table=5). По умолчанию '1'.
-  final String tableId = Uri.base.queryParameters['table'] ?? '1';
+  // Роут на админку: ?admin=1
+  final params = Uri.base.queryParameters;
+  if (params.containsKey('admin')) {
+    runApp(const AdminApp());
+    return;
+  }
+
+  // Определяем режим: стол или доставка
+  final String? tableParam = params['table'];
+  final String tableId = tableParam ?? '1';
+  final bool isDeliveryMode = tableParam == null;
   
   runApp(
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => CartProvider(tableId: tableId)),
+        ChangeNotifierProvider(create: (_) => FavoritesProvider()),
       ],
-      child: const MenuApp(),
+      child: MenuApp(isDeliveryMode: isDeliveryMode),
     ),
   );
 }
 
 class MenuApp extends StatelessWidget {
-  const MenuApp({super.key});
+  final bool isDeliveryMode;
+  const MenuApp({super.key, this.isDeliveryMode = false});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Premium Restaurant Menu',
+      title: 'Каркыра — Ресторан',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       scrollBehavior: AppScrollBehavior(),
-      home: const MenuHomeScreen(),
+      home: MenuHomeScreen(isDeliveryMode: isDeliveryMode),
     );
   }
 }
@@ -66,7 +91,8 @@ class AppScrollBehavior extends MaterialScrollBehavior {
 }
 
 class MenuHomeScreen extends StatefulWidget {
-  const MenuHomeScreen({super.key});
+  final bool isDeliveryMode;
+  const MenuHomeScreen({super.key, this.isDeliveryMode = false});
 
   @override
   State<MenuHomeScreen> createState() => _MenuHomeScreenState();
@@ -81,10 +107,7 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
   int _currentVideoIndex = 0;
   bool _isMuted = true;
 
-  final List<String> _videoAssets = [
-    'assets/videos/test.mp4',
-    'assets/videos/test2.mp4',
-  ];
+  // _videoAssets list removed since we use dynamic bannerUrl
 
   @override
   void initState() {
@@ -93,9 +116,10 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
   }
 
   void _initializeVideos() async {
-    for (int i = 0; i < _videoAssets.length; i++) {
-      final asset = _videoAssets[i];
-      final controller = VideoPlayerController.asset(asset);
+    final asset = MenuDataService.bannerUrl ?? 'assets/videos/test.mp4';
+    final controller = asset.startsWith('assets/')
+        ? VideoPlayerController.asset(asset)
+        : VideoPlayerController.networkUrl(Uri.parse(asset));
       try {
         await controller.initialize();
         controller.setLooping(false); 
@@ -114,8 +138,8 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
       } catch (e) {
         print('Error initializing $asset: $e');
       }
-    }
-    
+
+    // We only have one dynamic video banner string now.
     if (_videoControllers.isNotEmpty) {
       _videoControllers[0].play();
     }
@@ -309,6 +333,53 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
           child: Center(
             child: Consumer<CartProvider>(
               builder: (context, cart, child) {
+                final isDelivery = widget.isDeliveryMode;
+                
+                if (isDelivery) {
+                  // Режим доставки — показываем кнопку "Заказать"
+                  return GestureDetector(
+                    onTap: cart.totalItems == 0 ? null : () {
+                      showModalBottomSheet(
+                        context: context,
+                        isScrollControlled: true,
+                        backgroundColor: Colors.transparent,
+                        builder: (_) => const DeliveryScreen(),
+                      );
+                    },
+                    child: AnimatedOpacity(
+                      opacity: cart.totalItems > 0 ? 1.0 : 0.4,
+                      duration: const Duration(milliseconds: 200),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFD4A043),
+                          borderRadius: BorderRadius.circular(22),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (cart.totalItems > 0) ...[
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text('${cart.totalItems}',
+                                  style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                              ),
+                              const SizedBox(width: 8),
+                            ],
+                            Text('Заказать',
+                              style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }
+
+                // Обычный режим — иконка корзины
                 return GestureDetector(
                   onTap: () {
                     Navigator.push(
@@ -370,7 +441,19 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
 
   Widget _buildBanner() {
     final screenHeight = MediaQuery.of(context).size.height;
-    return Container(
+    return VisibilityDetector(
+      key: const Key('main_banner_detector'),
+      onVisibilityChanged: (info) {
+        if (_videoControllers.isNotEmpty) {
+          if (info.visibleFraction == 0) {
+            _videoControllers[_currentVideoIndex].pause();
+          } else {
+            // Restore playback only if it's the currently focused video
+            _videoControllers[_currentVideoIndex].play();
+          }
+        }
+      },
+      child: Container(
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 12), 
       height: screenHeight * 0.55, 
@@ -392,7 +475,7 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
         children: [
           // Video Carousel
           _videoControllers.isEmpty
-              ? Image.asset('assets/images/restaurant_banner.png', fit: BoxFit.cover)
+              ? Image.network('assets/images/restaurant_banner.png', fit: BoxFit.cover)
               : PageView.builder(
                   controller: _bannerPageController,
                   onPageChanged: (index) {
@@ -494,11 +577,12 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
           ),
         ],
       ),
-    );
+    ));
   }
 
   Widget _buildQuickCategories() {
     final quickCats = [
+      {'id': 'favorites', 'title': 'Избранное', 'icon': Icons.favorite_rounded, 'colors': [const Color(0xFFFF5252), const Color(0xFFD50000)]},
       {'id': 'top', 'title': 'Топ', 'icon': Icons.whatshot_rounded, 'colors': [const Color(0xFFFF8C00), const Color(0xFFFF4500)]},
       {'id': 'new', 'title': 'Новинки', 'icon': Icons.auto_awesome_rounded, 'colors': [const Color(0xFFFFD700), const Color(0xFFFFA500)]},
       {'id': 'chef', 'title': 'От шефа', 'icon': Icons.restaurant_menu_rounded, 'colors': [const Color(0xFFD4AF37), const Color(0xFF8B4513)]},
@@ -509,9 +593,13 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(top: 24, bottom: 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: quickCats.asMap().entries.map((entry) {
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        physics: const BouncingScrollPhysics(),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.start,
+          children: quickCats.asMap().entries.map((entry) {
           final index = entry.key;
           final cat = entry.value;
           final colors = cat['colors'] as List<Color>;
@@ -571,6 +659,7 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
             ),
           );
         }).toList(),
+        ),
       ),
     );
   }
@@ -639,14 +728,21 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
     // Сложная фильтрация: либо через быстрый фильтр (Топ, Новинки), либо через категорию
     List<MenuItem> filteredItems;
     if (activeQuickFilter != null) {
-      if (activeQuickFilter == 'top' || activeQuickFilter == 'hits') {
+      if (activeQuickFilter == 'favorites') {
+        final favs = Provider.of<FavoritesProvider>(context);
+        filteredItems = menuItems.where((item) => favs.isFavorite(item.id)).toList();
+      } else if (activeQuickFilter == 'top') {
+        filteredItems = menuItems.where((item) => item.isTop).toList();
+      } else if (activeQuickFilter == 'hits') {
         filteredItems = menuItems.where((item) => item.isHit).toList();
       } else if (activeQuickFilter == 'new') {
         filteredItems = menuItems.where((item) => item.isNew).toList();
       } else if (activeQuickFilter == 'chef') {
         filteredItems = menuItems.where((item) => item.isChefChoice).toList();
+      } else if (activeQuickFilter == 'promo') {
+        filteredItems = menuItems.where((item) => item.isPromo).toList();
       } else {
-        filteredItems = menuItems; // Для акций пока весь список
+        filteredItems = menuItems;
       }
     } else {
       filteredItems = selectedCategoryId == '0' 
@@ -684,9 +780,10 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
         ),
         delegate: SliverChildBuilderDelegate((context, index) {
           final item = filteredItems[index];
+          final cart = Provider.of<CartProvider>(context, listen: false);
           return GestureDetector(
             onTap: () => _showItemDetails(item),
-            child: _MenuItemCard(item: item),
+            child: _MenuItemCard(item: item, cart: cart),
           );
         }, childCount: filteredItems.length),
       ),
@@ -754,7 +851,8 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
 
 class _MenuItemCard extends StatelessWidget {
   final MenuItem item;
-  const _MenuItemCard({required this.item});
+  final CartProvider cart;
+  const _MenuItemCard({required this.item, required this.cart});
 
   @override
   Widget build(BuildContext context) {
@@ -773,22 +871,30 @@ class _MenuItemCard extends StatelessWidget {
               child: Stack(
                 children: [
                   Positioned.fill(
-                    child: Image.asset(item.images[0], fit: BoxFit.cover),
+                    child: _buildSmartImage(item.images[0]),
                   ),
                   Positioned(
                     top: 12,
                     right: 12,
-                    child: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: const BoxDecoration(
-                        color: Colors.white,
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(
-                        Icons.favorite_border,
-                        size: 20,
-                        color: Colors.grey.shade400,
-                      ),
+                    child: Consumer<FavoritesProvider>(
+                      builder: (ctx, favs, child) {
+                        final isFav = favs.isFavorite(item.id);
+                        return GestureDetector(
+                          onTap: () => favs.toggleFavorite(item.id),
+                          child: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: const BoxDecoration(
+                              color: Colors.white,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              isFav ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                              size: 20,
+                              color: isFav ? Colors.red : Colors.grey.shade400,
+                            ),
+                          ),
+                        );
+                      },
                     ),
                   ),
                   if (item.isHit)
@@ -854,13 +960,27 @@ class _MenuItemCard extends StatelessWidget {
                         color: Colors.black,
                       ),
                     ),
-                    Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF5F5F5),
-                        borderRadius: BorderRadius.circular(10),
+                    GestureDetector(
+                      onTap: () {
+                        cart.addToCart(item.id, 1);
+                        ScaffoldMessenger.of(context).clearSnackBars();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('${item.title} добавлено в корзину'),
+                            duration: const Duration(seconds: 1),
+                            behavior: SnackBarBehavior.floating,
+                            backgroundColor: const Color(0xFF1A1A1A),
+                          ),
+                        );
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF5F5F5),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.add, size: 24),
                       ),
-                      child: const Icon(Icons.add, size: 24),
                     ),
                   ],
                 ),
@@ -968,10 +1088,7 @@ class _MenuItemDetailSheetState extends State<_MenuItemDetailSheet> {
                           });
                         },
                         itemBuilder: (context, index) {
-                          return Image.asset(
-                            widget.item.images[index],
-                            fit: BoxFit.cover,
-                          );
+                          return _buildSmartImage(widget.item.images[index]);
                         },
                       ),
                       // Image Index Indicator (Dots)
@@ -1071,7 +1188,7 @@ class _MenuItemDetailSheetState extends State<_MenuItemDetailSheet> {
                                         width: double.infinity,
                                         color: Colors.white,
                                         child: imagePath != null 
-                                          ? Image.asset(
+                                          ? Image.network(
                                               imagePath,
                                               fit: BoxFit.cover,
                                               errorBuilder: (context, error, stackTrace) => const Icon(Icons.restaurant, color: Colors.grey, size: 24),
@@ -1228,14 +1345,26 @@ class _MenuItemDetailSheetState extends State<_MenuItemDetailSheet> {
                     child: const Icon(Icons.close, color: Colors.white, size: 20),
                   ),
                 ),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.3),
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white24, width: 1),
-                  ),
-                  child: const Icon(Icons.favorite_border, color: Colors.white, size: 20),
+                Consumer<FavoritesProvider>(
+                  builder: (ctx, favs, child) {
+                    final isFav = favs.isFavorite(widget.item.id);
+                    return GestureDetector(
+                      onTap: () => favs.toggleFavorite(widget.item.id),
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.3),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white24, width: 1),
+                        ),
+                        child: Icon(
+                          isFav ? Icons.favorite_rounded : Icons.favorite_border_rounded, 
+                          color: isFav ? Colors.red : Colors.white, 
+                          size: 20,
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ],
             ),
@@ -1424,19 +1553,18 @@ class _SharedCartScreenState extends State<SharedCartScreen> {
                               icon: const Icon(Icons.arrow_back_ios, color: Colors.white, size: 20),
                               onPressed: () => Navigator.pop(context),
                             ),
-                            Column(
-                              children: [
-                                Text(
-                                  "КОРЗИНА СТОЛА №${cart.tableId}",
-                                  style: GoogleFonts.forum(
-                                    color: Colors.white,
-                                    fontSize: 18,
-                                    letterSpacing: 4,
-                                  ),
-                                ),
-                              ],
+                            Text(
+                              "КОРЗИНА СТОЛА №${cart.tableId}",
+                              style: GoogleFonts.forum(
+                                color: Colors.white,
+                                fontSize: 18,
+                                letterSpacing: 4,
+                              ),
                             ),
-                            const SizedBox(width: 48),
+                            IconButton(
+                              icon: const Icon(Icons.refresh_rounded, color: Colors.white, size: 20),
+                              onPressed: () => cart.clearTable(),
+                            ),
                           ],
                         ),
                         const Spacer(),
@@ -1553,6 +1681,7 @@ class _SharedCartScreenState extends State<SharedCartScreen> {
             ),
           Expanded(
             child: ListView.builder(
+              key: ValueKey('cart_list_${cart.items.length}'),
               padding: const EdgeInsets.symmetric(horizontal: 20),
               itemCount: cart.items.length,
               itemBuilder: (context, index) {
@@ -1575,7 +1704,7 @@ class _SharedCartScreenState extends State<SharedCartScreen> {
                     children: [
                       ClipRRect(
                         borderRadius: BorderRadius.circular(10),
-                        child: Image.asset(menuItem.images.first, width: 60, height: 60, fit: BoxFit.cover),
+                        child: _buildSmartImage(menuItem.images.first, width: 60, height: 60),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -1605,12 +1734,39 @@ class _SharedCartScreenState extends State<SharedCartScreen> {
                           ],
                         ),
                       ),
-                      Text("x${cartItem.quantity}", style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
-                      if (isMine)
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text("x${cartItem.quantity}", style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
+                          if (cartItem.status == 'confirmed')
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.check_circle_outline, size: 12, color: Colors.green),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    "Заказано", 
+                                    style: GoogleFonts.outfit(color: Colors.green, fontSize: 10, fontWeight: FontWeight.bold)
+                                  ),
+                                ],
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(width: 8),
+                      // Кнопка удаления (доступна всем для общего стола)
+                      if (cartItem.status == 'ordering')
                         IconButton(
                           icon: const Icon(Icons.close, size: 18, color: Colors.redAccent),
-                          onPressed: () => cart.removeFromCart(cartItem.id),
-                        ),
+                          onPressed: () {
+                            debugPrint('--- UI: Click delete on ${cartItem.id}');
+                            cart.removeFromCart(cartItem.id);
+                          },
+                        )
+                      else if (isMine && cartItem.status == 'confirmed')
+                        const SizedBox(width: 48), // Место, где был бы крестик
                     ],
                   ),
                 );
@@ -1622,10 +1778,11 @@ class _SharedCartScreenState extends State<SharedCartScreen> {
       ),
     );
   }
-
+ 
   Widget _buildTotalPanel(double totalForTable, double displayTotal, CartProvider cart) {
-    bool isConfirmed = cart.confirmedAt != null;
-
+    bool hasUnconfirmedItems = cart.items.any((item) => item.status == 'ordering');
+    bool isConfirmed = !hasUnconfirmedItems && cart.items.isNotEmpty;
+ 
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
@@ -1655,14 +1812,16 @@ class _SharedCartScreenState extends State<SharedCartScreen> {
             ),
             const SizedBox(height: 16),
             ElevatedButton(
-              onPressed: () => cart.confirmOrder(),
+              onPressed: hasUnconfirmedItems ? () => cart.confirmOrder() : null,
               style: ElevatedButton.styleFrom(
                 backgroundColor: isConfirmed ? const Color(0xFFE09E00) : Colors.black,
+                disabledBackgroundColor: isConfirmed ? const Color(0xFFE09E00).withOpacity(0.7) : Colors.grey.shade300,
                 minimumSize: const Size(double.infinity, 60),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               ),
               child: Text(
-                isConfirmed ? "ЗАКАЗ ПОДТВЕРЖДЕН" : "ОФОРМИТЬ ЗАКАЗ"
+                isConfirmed ? "ЗАКАЗ ПОДТВЕРЖДЕН" : 
+                hasUnconfirmedItems ? "ДОЗАКАЗАТЬ (${cart.items.where((i) => i.status == 'ordering').length})" : "ОФОРМИТЬ ЗАКАЗ"
               ),
             ),
           ],
@@ -2128,3 +2287,9 @@ class _CountBtn extends StatelessWidget {
   }
 }
 
+Widget _buildSmartImage(String url, {double? width, double? height}) {
+  if (url.startsWith('assets/')) {
+    return Image.asset(url, width: width, height: height, fit: BoxFit.cover);
+  }
+  return Image.network(url, width: width, height: height, fit: BoxFit.cover, errorBuilder: (_, __, ___) => Container(width: width, height: height, color: Colors.white12));
+}

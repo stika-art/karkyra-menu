@@ -16,6 +16,8 @@ class MenuItem {
   final bool isHit;
   final bool isNew;
   final bool isChefChoice;
+  final bool isTop;
+  final bool isPromo;
   final bool isVegan;
   final bool isGlutenFree;
 
@@ -37,6 +39,8 @@ class MenuItem {
     this.isHit = false,
     this.isNew = false,
     this.isChefChoice = false,
+    this.isTop = false,
+    this.isPromo = false,
     this.isVegan = false,
     this.isGlutenFree = false,
   });
