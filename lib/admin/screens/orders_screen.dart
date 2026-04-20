@@ -323,13 +323,23 @@ class _OrdersScreenState extends State<OrdersScreen>
   }
 
   Widget _statusChip(String status) {
-    final map = {
-      'new': ('Новый', Colors.orange),
-      'processing': ('В работе', Colors.blue),
-      'done': ('Готово', Colors.green),
-      'cancelled': ('Отменён', Colors.red),
-    };
-    final (label, color) = map[status] ?? ('Неизвестно', Colors.grey);
+    String label = 'Неизвестно';
+    Color color = Colors.grey;
+    
+    if (status == 'new') {
+      label = 'Новый';
+      color = Colors.orange;
+    } else if (status == 'processing') {
+      label = 'В работе';
+      color = Colors.blue;
+    } else if (status == 'done') {
+      label = 'Готово';
+      color = Colors.green;
+    } else if (status == 'cancelled') {
+      label = 'Отменён';
+      color = Colors.red;
+    }
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(

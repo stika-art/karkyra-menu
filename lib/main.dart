@@ -17,6 +17,7 @@ import 'guest/delivery_screen.dart';
 import 'services/settings_service.dart';
 import 'services/menu_data_service.dart';
 import 'services/favorites_provider.dart';
+import 'services/telegram_service.dart';
 
 List<Category> get categories => MenuDataService.categories;
 List<MenuItem> get menuItems => MenuDataService.items;
@@ -60,14 +61,15 @@ void main() async {
         ChangeNotifierProvider(create: (_) => CartProvider(tableId: tableId)),
         ChangeNotifierProvider(create: (_) => FavoritesProvider()),
       ],
-      child: MenuApp(isDeliveryMode: isDeliveryMode),
+      child: MenuApp(isDeliveryMode: isDeliveryMode, tableId: tableId),
     ),
   );
 }
 
 class MenuApp extends StatelessWidget {
   final bool isDeliveryMode;
-  const MenuApp({super.key, this.isDeliveryMode = false});
+  final String tableId;
+  const MenuApp({super.key, this.isDeliveryMode = false, required this.tableId});
 
   @override
   Widget build(BuildContext context) {
@@ -76,7 +78,7 @@ class MenuApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       scrollBehavior: AppScrollBehavior(),
-      home: MenuHomeScreen(isDeliveryMode: isDeliveryMode),
+      home: MenuHomeScreen(isDeliveryMode: isDeliveryMode, tableId: tableId),
     );
   }
 }
@@ -92,7 +94,8 @@ class AppScrollBehavior extends MaterialScrollBehavior {
 
 class MenuHomeScreen extends StatefulWidget {
   final bool isDeliveryMode;
-  const MenuHomeScreen({super.key, this.isDeliveryMode = false});
+  final String tableId;
+  const MenuHomeScreen({super.key, this.isDeliveryMode = false, required this.tableId});
 
   @override
   State<MenuHomeScreen> createState() => _MenuHomeScreenState();

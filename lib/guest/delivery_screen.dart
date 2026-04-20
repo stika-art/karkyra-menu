@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../services/telegram_service.dart';
 import '../services/cart_provider.dart';
 import '../services/menu_data_service.dart';
+import '../models/menu_item.dart';
 
 /// Экран корзины для режима Доставки (без разделения счета)
 class DeliveryScreen extends StatefulWidget {
@@ -37,7 +38,7 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
           (m) => m.id == it.menuItemId,
           orElse: () => menuItemList.isNotEmpty 
               ? menuItemList.first 
-              : MenuItem(id: '0', categoryId: '0', title: 'Unknown', price: 0, images: ['assets/images/placeholder.png'], ingredients: []),
+              : MenuItem(id: '0', categoryId: '0', title: 'Unknown', description: 'No description', price: 0, images: ['assets/images/placeholder.png'], ingredients: []),
         );
         return {
           'id': it.menuItemId,
