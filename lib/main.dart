@@ -8,8 +8,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'theme/app_theme.dart';
 // import 'data/mock_data.dart';
 import 'package:visibility_detector/visibility_detector.dart';
-List<Category> get categories => MenuDataService.categories;
-List<MenuItem> get menuItems => MenuDataService.items;
 import 'models/menu_item.dart';
 import 'models/category.dart';
 import 'services/cart_provider.dart';
@@ -19,6 +17,9 @@ import 'guest/delivery_screen.dart';
 import 'services/settings_service.dart';
 import 'services/menu_data_service.dart';
 import 'services/favorites_provider.dart';
+
+List<Category> get categories => MenuDataService.categories;
+List<MenuItem> get menuItems => MenuDataService.items;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
