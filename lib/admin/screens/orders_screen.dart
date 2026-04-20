@@ -32,12 +32,14 @@ class _OrdersScreenState extends State<OrdersScreen>
       final tableRes = await Supabase.instance.client
           .from('orders_new')
           .select()
-          .order('created_at', ascending: false);
+          .order('created_at', ascending: false)
+          .timeout(const Duration(seconds: 7));
 
       final deliveryRes = await Supabase.instance.client
           .from('delivery_orders')
           .select()
-          .order('created_at', ascending: false);
+          .order('created_at', ascending: false)
+          .timeout(const Duration(seconds: 7));
 
       setState(() {
         _tableOrders = List<Map<String, dynamic>>.from(tableRes);

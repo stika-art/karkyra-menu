@@ -30,11 +30,10 @@ void main() async {
     anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZnemRwYndjZW5ja21qdGdmdmZ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2NDkxODAsImV4cCI6MjA5MjIyNTE4MH0.pFmPP9A9Tov4b6URS-LP5b3lYyB0fVXTKDvLY_MR120',
   );
 
-  // Загружаем настройки и меню параллельно
-  await Future.wait([
-    SettingsService.load(),
-    MenuDataService.load(),
-  ]);
+  // Запускаем загрузку данных в фоне, не дожидаясь ответа от сервера в main(),
+  // чтобы приложение не висело на индикаторе загрузки браузера.
+  SettingsService.load();
+  MenuDataService.load();
 
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(

@@ -8,7 +8,10 @@ class SettingsService {
 
   static Future<void> load() async {
     try {
-      final res = await Supabase.instance.client.from('admin_settings').select();
+      final res = await Supabase.instance.client
+          .from('admin_settings')
+          .select()
+          .timeout(const Duration(seconds: 5));
       _cache = {
         for (final row in res as List) row['key'] as String: row['value'] as String
       };

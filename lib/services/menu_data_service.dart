@@ -26,7 +26,8 @@ class MenuDataService {
           .from('categories')
           .select()
           .eq('is_active', true)
-          .order('sort_order');
+          .order('sort_order')
+          .timeout(const Duration(seconds: 5));
 
       final cats = (catsRes as List).map<Category>((c) => Category(
         id: c['id'] as String,
@@ -39,16 +40,17 @@ class MenuDataService {
           .from('menu_items_db')
           .select()
           .eq('is_available', true)
-          .order('sort_order');
+          .order('sort_order')
+          .timeout(const Duration(seconds: 5));
 
       // Загружаем ингредиенты
-      final ingredientsRes = await Supabase.instance.client.from('ingredients').select();
+      final ingredientsRes = await Supabase.instance.client.from('ingredients').select().timeout(const Duration(seconds: 5));
       final Map<String, Map<String, dynamic>> allIngredients = {
         for (var i in ingredientsRes) i['id']: i
       };
 
       // Загружаем связи
-      final dishIngsRes = await Supabase.instance.client.from('dish_ingredients').select();
+      final dishIngsRes = await Supabase.instance.client.from('dish_ingredients').select().timeout(const Duration(seconds: 5));
       final Map<String, List<String>> dishToIngredients = {};
       for (var row in dishIngsRes) {
         final dId = row['dish_id'] as String;
@@ -107,7 +109,8 @@ class MenuDataService {
           .select('url')
           .eq('is_active', true)
           .eq('type', 'video')
-          .maybeSingle();
+          .maybeSingle()
+          .timeout(const Duration(seconds: 5));
       
       if (bannerRes != null && bannerRes['url'] != null) {
         _cachedBannerUrl = bannerRes['url'];
