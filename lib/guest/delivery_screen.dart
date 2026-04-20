@@ -31,9 +31,13 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
     try {
       // Собираем данные в нужный формат
       final preparedItems = cart.items.map((it) {
-        final menuItem = MenuDataService.items.firstWhere(
+        // Безопасный поиск блюда в кеше
+        final menuItemList = MenuDataService.items;
+        final menuItem = menuItemList.firstWhere(
           (m) => m.id == it.menuItemId,
-          orElse: () => MenuDataService.items.first,
+          orElse: () => menuItemList.isNotEmpty 
+              ? menuItemList.first 
+              : MenuItem(id: '0', categoryId: '0', title: 'Unknown', price: 0, images: ['assets/images/placeholder.png'], ingredients: []),
         );
         return {
           'id': it.menuItemId,
@@ -45,39 +49,51 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
 
       final total = preparedItems.fold<double>(0, (sum, it) => sum + ((it['price'] as double) * (it['qty'] as int)));
 
+      // 1. Сохраняем в БД
       await Supabase.instance.client.from('delivery_orders').insert({
         'customer_name': _nameController.text.trim(),
         'customer_phone': _phoneController.text.trim(),
-        // Сохраняем адрес (если есть колонка в БД, иначе можно просто передавать в Telegram)
-        // Для безопасности пока просто шлем в тг, либо если нужно: 'address': _addressController.text.trim(),
         'items': preparedItems,
         'total': total,
         'status': 'new',
       });
 
-      // В Telegram передадим больше инфы
-      final msgDetails = 'Адрес: ${_addressController.text.trim()}';
+      // 2. Уведомляем в Telegram
+      try {
+        final msgDetails = 'Адрес: ${_addressController.text.trim()}';
+        await TelegramService.notifyDeliveryOrder(
+          name: _nameController.text.trim(),
+          phone: _phoneController.text.trim() + '\n' + msgDetails,
+          items: preparedItems,
+          total: total,
+        );
+      } catch (tgErr) {
+        debugPrint('TG Notify error: $tgErr');
+      }
 
-      await TelegramService.notifyDeliveryOrder(
-        name: _nameController.text.trim(),
-        phone: _phoneController.text.trim() + '\n' + msgDetails, // Пока припишем адрес сюда
-        items: preparedItems,
-        total: total,
-      );
+      // 3. Очищаем корзину ПОСЛЕ того как всё успешно
+      try {
+        cart.clearCartLocally();
+      } catch (cartErr) {
+        debugPrint('Cart clear error: $cartErr');
+      }
 
-      // Очищаем корзину после успешного заказа
-      cart.clearCartLocally();
-
-      setState(() {
-        _success = true;
-        _isLoading = false;
-      });
-    } catch (e) {
-      print(e);
-      setState(() => _isLoading = false);
       if (mounted) {
+        setState(() {
+          _success = true;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Order submit error: $e');
+      if (mounted) {
+        setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
-           SnackBar(content: Text('Ошибка оформления: проверьте подключение.\n$e')),
+           SnackBar(
+             content: Text('Ошибка оформления: $e'),
+             backgroundColor: Colors.red,
+             behavior: SnackBarBehavior.floating,
+           ),
         );
       }
     }

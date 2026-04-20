@@ -61,4 +61,16 @@ $itemLines
 ''';
     await sendMessage(message);
   }
+
+  static Future<void> notifyWaiterCall({
+    required String tableId,
+  }) async {
+    final message = '''
+🔔 <b>ВЫЗОВ ОФИЦИАНТА!</b>
+
+🪑 Стол: <b>№$tableId</b>
+⏰ Время: <b>${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}</b>
+''';
+    await sendMessage(message);
+  }
 }

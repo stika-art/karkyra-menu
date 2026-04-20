@@ -17,12 +17,13 @@ class _OrdersScreenState extends State<OrdersScreen>
   late TabController _tabController;
   List<Map<String, dynamic>> _tableOrders = [];
   List<Map<String, dynamic>> _deliveryOrders = [];
+  List<Map<String, dynamic>> _waiterCalls = [];
   bool _loading = true;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     _loadOrders();
   }
 
@@ -41,14 +42,30 @@ class _OrdersScreenState extends State<OrdersScreen>
           .order('created_at', ascending: false)
           .timeout(const Duration(seconds: 7));
 
+      final callsRes = await Supabase.instance.client
+          .from('waiter_calls')
+          .select()
+          .eq('status', 'pending')
+          .order('created_at', ascending: false)
+          .timeout(const Duration(seconds: 7));
+
       setState(() {
         _tableOrders = List<Map<String, dynamic>>.from(tableRes);
         _deliveryOrders = List<Map<String, dynamic>>.from(deliveryRes);
+        _waiterCalls = List<Map<String, dynamic>>.from(callsRes);
         _loading = false;
       });
     } catch (e) {
       setState(() => _loading = false);
     }
+  }
+
+  Future<void> _resolveCall(String id) async {
+    await Supabase.instance.client
+        .from('waiter_calls')
+        .update({'status': 'resolved'})
+        .eq('id', id);
+    _loadOrders();
   }
 
   Future<void> _updateDeliveryStatus(String id, String status) async {
@@ -73,6 +90,7 @@ class _OrdersScreenState extends State<OrdersScreen>
           tabs: [
             Tab(text: 'Столы (${_tableOrders.length})'),
             Tab(text: 'Доставка (${_deliveryOrders.length})'),
+            Tab(text: 'Вызовы (${_waiterCalls.length})'),
           ],
         ),
         Expanded(
@@ -83,6 +101,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                   children: [
                     _buildTableOrders(),
                     _buildDeliveryOrders(),
+                    _buildWaiterCalls(),
                   ],
                 ),
         ),
@@ -224,67 +243,81 @@ class _OrdersScreenState extends State<OrdersScreen>
       padding: const EdgeInsets.all(16),
       itemCount: _deliveryOrders.length,
       itemBuilder: (context, i) {
-        final order = _deliveryOrders[i];
-        final status = order['status'] ?? 'new';
-        final items = order['items'] as List? ?? [];
+        try {
+          final order = _deliveryOrders[i];
+          final String status = order['status']?.toString() ?? 'new';
+          final dynamic rawItems = order['items'];
+          final List items = (rawItems is List) ? rawItems : [];
+          final double total = double.tryParse(order['total']?.toString() ?? '0') ?? 0;
 
-        return Container(
-          margin: const EdgeInsets.only(bottom: 16),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: const Color(0xFF1E1E1E),
-            borderRadius: BorderRadius.circular(16),
-            border: status == 'new'
-                ? Border.all(color: Colors.orange.withOpacity(0.4))
-                : null,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(order['customer_name'] ?? 'Без имени',
-                        style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-                      Text(order['customer_phone'] ?? '',
-                        style: GoogleFonts.outfit(color: const Color(0xFFD4A043), fontSize: 14)),
-                    ],
-                  ),
-                  _statusChip(status),
-                ],
-              ),
-              const SizedBox(height: 12),
-              ...items.map((it) => Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Text(
-                  '• ${it['title'] ?? 'Блюдо'} x${it['qty'] ?? 1}',
-                  style: GoogleFonts.outfit(color: Colors.white54, fontSize: 13),
+          return Container(
+            margin: const EdgeInsets.only(bottom: 16),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E1E1E),
+              borderRadius: BorderRadius.circular(16),
+              border: status == 'new'
+                  ? Border.all(color: Colors.orange.withOpacity(0.4))
+                  : null,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(order['customer_name']?.toString() ?? 'Без имени',
+                          style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                        Text(order['customer_phone']?.toString() ?? '',
+                          style: GoogleFonts.outfit(color: const Color(0xFFD4A043), fontSize: 14)),
+                      ],
+                    ),
+                    _statusChip(status),
+                  ],
                 ),
-              )),
-              const SizedBox(height: 12),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Итого: ${(order['total'] ?? 0).toStringAsFixed(0)} ₽',
-                    style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold),
-                  ),
-                  Row(
-                    children: [
-                      if (status == 'new')
-                        _actionButton('В работу', Colors.blue, () => _updateDeliveryStatus(order['id'], 'processing')),
-                      if (status == 'processing')
-                        _actionButton('Готово', Colors.green, () => _updateDeliveryStatus(order['id'], 'done')),
-                    ],
-                  ),
-                ],
-              ),
-            ],
-          ),
-        );
+                const SizedBox(height: 12),
+                ...items.map((it) {
+                  if (it is! Map) return const SizedBox();
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text(
+                      '• ${it['title'] ?? 'Блюдо'} x${it['qty'] ?? 1}',
+                      style: GoogleFonts.outfit(color: Colors.white54, fontSize: 13),
+                    ),
+                  );
+                }).toList(),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Итого: ${total.toStringAsFixed(0)} ₽',
+                      style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold),
+                    ),
+                    Row(
+                      children: [
+                        if (status == 'new')
+                          _actionButton('В работу', Colors.blue, () => _updateDeliveryStatus(order['id'].toString(), 'processing')),
+                        if (status == 'processing')
+                          _actionButton('Готово', Colors.green, () => _updateDeliveryStatus(order['id'].toString(), 'done')),
+                      ],
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        } catch (e) {
+          return Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.all(12),
+            color: Colors.red.withOpacity(0.1),
+            child: Text('Ошибка данных заказа: $e', style: const TextStyle(color: Colors.redAccent, fontSize: 10)),
+          );
+        }
       },
     );
   }
@@ -321,6 +354,65 @@ class _OrdersScreenState extends State<OrdersScreen>
         ),
         child: Text(label, style: GoogleFonts.outfit(color: color, fontWeight: FontWeight.w600)),
       ),
+    );
+  }
+
+  Widget _buildWaiterCalls() {
+    if (_waiterCalls.isEmpty) {
+      return _buildEmpty('Активных вызовов нет');
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _waiterCalls.length,
+      itemBuilder: (context, i) {
+        final call = _waiterCalls[i];
+        final time = DateTime.tryParse(call['created_at'] ?? '')?.toLocal();
+        final timeStr = time != null ? '${time.hour}:${time.minute.toString().padLeft(2, '0')}' : '--:--';
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1E1E1E),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFD4A043).withOpacity(0.3)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFD4A043).withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.notifications_active_rounded, color: Color(0xFFD4A043)),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('СТОЛ №${call['table_id']}',
+                      style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
+                    Text('Вызов в $timeStr',
+                      style: GoogleFonts.outfit(color: Colors.white38, fontSize: 14)),
+                  ],
+                ),
+              ),
+              ElevatedButton(
+                onPressed: () => _resolveCall(call['id'].toString()),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green.withOpacity(0.2),
+                  foregroundColor: Colors.green,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                child: Text('ПОДОШЁЛ', style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 

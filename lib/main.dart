@@ -328,6 +328,33 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
         ],
       ),
       actions: [
+        if (!widget.isDeliveryMode)
+          IconButton(
+            onPressed: () async {
+              // 1. Отправляем в базу
+              try {
+                await Supabase.instance.client.from('waiter_calls').insert({
+                  'table_id': widget.tableId,
+                  'status': 'pending',
+                });
+              } catch (_) {}
+
+              // 2. Отправляем в телеграм
+              await TelegramService.notifyWaiterCall(tableId: widget.tableId);
+              
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Официант вызван к столу №${widget.tableId}'),
+                    backgroundColor: const Color(0xFFD4A043),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              }
+            },
+            icon: const Icon(Icons.notifications_active_rounded, color: Color(0xFFD4A043)),
+            tooltip: 'Вызвать официанта',
+          ),
         Padding(
           padding: const EdgeInsets.only(right: 16),
           child: Center(
