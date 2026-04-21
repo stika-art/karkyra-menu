@@ -1,19 +1,6 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <!--
-    If you are serving your web app in a path other than the root, change the
-    href value below to reflect the base path you are serving from.
-
-    The path provided below has to start and end with a slash "/" in order for
-    it to work correctly.
-
-    For more details:
-    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
-
-    This is a placeholder for base href that will be replaced by the value of
-    the `--base-href` argument provided to `flutter build`.
-  -->
   <base href="$FLUTTER_BASE_HREF">
 
   <meta charset="UTF-8">
@@ -26,7 +13,6 @@
     (function() {
       const isAdmin = new URLSearchParams(window.location.search).has('admin');
       if (isAdmin) {
-        // Для админки — добавляем meta для PWA и manifest
         var meta = document.createElement('meta');
         meta.name = 'theme-color';
         meta.content = '#141414';
@@ -37,35 +23,18 @@
         link.href = 'manifest.json';
         document.head.appendChild(link);
 
-        var adminMeta = document.createElement('meta');
-        adminMeta.name = 'flutter-web-renderer';
-        adminMeta.content = 'canvaskit';
-        document.head.appendChild(adminMeta);
-
         if ('serviceWorker' in navigator) {
           navigator.serviceWorker.register('pwa_sw.js').then((registration) => {
-            console.log('PWA ServiceWorker registered with scope:', registration.scope);
-          }).catch((error) => {
-            console.log('ServiceWorker registration failed:', error);
+            console.log('PWA ServiceWorker registered');
           });
         }
-
-        // Заголовок страницы
         document.title = 'Каркыра — Админ';
       } else {
-        // Для гостей — НЕ регистрируем service worker,
-        // активно удаляем старые регистрации если есть
         if ('serviceWorker' in navigator) {
           navigator.serviceWorker.getRegistrations().then(function(registrations) {
             for (var r of registrations) { r.unregister(); }
           });
         }
-        // Запрет кэширования для гостей
-        var noCache = document.createElement('meta');
-        noCache.httpEquiv = 'Cache-Control';
-        noCache.content = 'no-cache, no-store, must-revalidate';
-        document.head.appendChild(noCache);
-
         document.title = 'Каркыра — Ресто-Чайхана';
       }
     })();
@@ -74,8 +43,34 @@
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
+  <style>
+    body { background-color: #141414; margin: 0; padding: 0; }
+    .main-loader {
+      display: flex; justify-content: center; align-items: center;
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background-color: #141414; z-index: 9999;
+    }
+    .spinner {
+      width: 40px; height: 40px;
+      border: 3px solid rgba(212, 160, 67, 0.2);
+      border-radius: 50%; border-top-color: #D4A043;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loader-content { text-align: center; }
+    .loader-text {
+      color: #D4A043; font-family: sans-serif; margin-top: 16px;
+      font-size: 14px; letter-spacing: 4px; opacity: 0.6;
+    }
+  </style>
 </head>
 <body>
+  <div class="main-loader" id="loading-indicator">
+    <div class="loader-content">
+      <div class="spinner"></div>
+      <div class="loader-text">KARK YRA</div>
+    </div>
+  </div>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
