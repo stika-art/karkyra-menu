@@ -18,6 +18,8 @@ import 'services/settings_service.dart';
 import 'services/menu_data_service.dart';
 import 'services/favorites_provider.dart';
 import 'services/telegram_service.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:js' as js;
 
 List<Category> get categories => MenuDataService.categories;
 List<MenuItem> get menuItems => MenuDataService.items;
@@ -25,11 +27,15 @@ List<MenuItem> get menuItems => MenuDataService.items;
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // Инициализация Supabase
-  await Supabase.initialize(
-    url: 'https://vgzdpbwcenckmjtgfvfw.supabase.co',
-    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZnemRwYndjZW5ja21qdGdmdmZ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2NDkxODAsImV4cCI6MjA5MjIyNTE4MH0.pFmPP9A9Tov4b6URS-LP5b3lYyB0fVXTKDvLY_MR120',
-  );
+  // Инициализация Supabase с защитой от ошибок
+  try {
+    await Supabase.initialize(
+      url: 'https://vgzdpbwcenckmjtgfvfw.supabase.co',
+      anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZnemRwYndjZW5ja21qdGdmdmZ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2NDkxODAsImV4cCI6MjA5MjIyNTE4MH0.pFmPP9A9Tov4b6URS-LP5b3lYyB0fVXTKDvLY_MR120',
+    );
+  } catch (e) {
+    debugPrint('Supabase init error: $e');
+  }
 
   // Запускаем загрузку данных в фоне, не дожидаясь ответа от сервера в main(),
   // чтобы приложение не висело на индикаторе загрузки браузера.
@@ -64,6 +70,11 @@ void main() async {
       child: MenuApp(isDeliveryMode: isDeliveryMode, tableId: tableId),
     ),
   );
+
+  // Скрываем загрузчик в вебе
+  if (kIsWeb) {
+    js.context.callMethod('removeFlutterLoader');
+  }
 }
 
 class MenuApp extends StatelessWidget {

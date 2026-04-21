@@ -7,8 +7,6 @@
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="flutter-web-renderer" content="canvaskit">
 
-  <!-- Для гостей: полное отключение PWA (нет кэша, нет "Установить") -->
-  <!-- Для админки: PWA включается только при ?admin в URL -->
   <script>
     (function() {
       const isAdmin = new URLSearchParams(window.location.search).has('admin');
@@ -30,11 +28,7 @@
         }
         document.title = 'Каркыра — Админ';
       } else {
-        if ('serviceWorker' in navigator) {
-          navigator.serviceWorker.getRegistrations().then(function(registrations) {
-            for (var r of registrations) { r.unregister(); }
-          });
-        }
+        // Убрал запрет кэширования, чтобы открывалось быстро
         document.title = 'Каркыра — Ресто-Чайхана';
       }
     })();
@@ -44,33 +38,58 @@
   <link rel="icon" type="image/png" href="favicon.png"/>
 
   <style>
-    body { background-color: #141414; margin: 0; padding: 0; }
+    body { background-color: #141414; margin: 0; padding: 0; overflow: hidden; }
     .main-loader {
       display: flex; justify-content: center; align-items: center;
       position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
       background-color: #141414; z-index: 9999;
+      transition: opacity 0.5s ease-out;
+    }
+    .loader-content {
+      display: flex; flex-direction: column; align-items: center; gap: 24px;
     }
     .spinner {
-      width: 40px; height: 40px;
-      border: 3px solid rgba(212, 160, 67, 0.2);
+      width: 44px; height: 44px;
+      border: 2px solid rgba(212, 160, 67, 0.1);
       border-radius: 50%; border-top-color: #D4A043;
-      animation: spin 0.8s linear infinite;
+      animation: spin 1s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    }
+    .loader-text {
+      color: #D4A043; font-family: 'Forum', serif; font-size: 18px;
+      letter-spacing: 0.4em; font-weight: 400; opacity: 0.8;
+      text-transform: uppercase;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
-    .loader-content { text-align: center; }
-    .loader-text {
-      color: #D4A043; font-family: sans-serif; margin-top: 16px;
-      font-size: 14px; letter-spacing: 4px; opacity: 0.6;
-    }
+    .loader-hidden { opacity: 0; pointer-events: none; }
   </style>
 </head>
 <body>
   <div class="main-loader" id="loading-indicator">
     <div class="loader-content">
       <div class="spinner"></div>
-      <div class="loader-text">KARK YRA</div>
     </div>
   </div>
+  <script>
+    window.addEventListener('load', function() {
+      // Резервный таймер удаления загрузчика, если Flutter не успел за 10 сек
+      setTimeout(function() {
+        var loader = document.getElementById('loading-indicator');
+        if (loader && !loader.classList.contains('loader-hidden')) {
+           loader.classList.add('loader-hidden');
+           setTimeout(() => loader.remove(), 500);
+        }
+      }, 10000);
+    });
+
+    // Функция для вызова из Dart
+    window.removeFlutterLoader = function() {
+      var loader = document.getElementById('loading-indicator');
+      if (loader) {
+        loader.classList.add('loader-hidden');
+        setTimeout(() => loader.remove(), 500);
+      }
+    };
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
