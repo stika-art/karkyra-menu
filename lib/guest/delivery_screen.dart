@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:provider/provider.dart';
 import '../services/telegram_service.dart';
+import '../services/settings_service.dart';
 import '../services/cart_provider.dart';
 import '../services/menu_data_service.dart';
 import '../models/menu_item.dart';
@@ -16,12 +18,13 @@ class DeliveryScreen extends StatefulWidget {
 }
 
 class _DeliveryScreenState extends State<DeliveryScreen> {
-  final _nameController = TextEditingController();
-  final _phoneController = TextEditingController();
+  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _phoneController = TextEditingController();
   final _addressController = TextEditingController(); // Новое поле для доставки
   final _formKey = GlobalKey<FormState>();
   bool _isLoading = false;
   bool _success = false;
+  String? _orderId;
 
   Future<void> _submit(CartProvider cart) async {
     if (!_formKey.currentState!.validate()) return;
@@ -50,24 +53,28 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
 
       final total = preparedItems.fold<double>(0, (sum, it) => sum + ((it['price'] as double) * (it['qty'] as int)));
 
-      // 1. Сохраняем в БД
-      await Supabase.instance.client.from('delivery_orders').insert({
+      // 1. Сохраняем в БД и получаем ID
+      final res = await Supabase.instance.client.from('delivery_orders').insert({
         'customer_name': _nameController.text.trim(),
-        'customer_phone': _phoneController.text.trim(),
+        'customer_phone': '+996' + _phoneController.text.trim(),
         'items': preparedItems,
         'total': total,
         'status': 'new',
-      });
+      }).select().single();
 
-      // 2. Уведомляем в Telegram
+      _orderId = res['id'].toString();
+
+      // 2. Уведомляем в Telegram (если включено)
       try {
-        final msgDetails = 'Адрес: ${_addressController.text.trim()}';
-        await TelegramService.notifyDeliveryOrder(
-          name: _nameController.text.trim(),
-          phone: _phoneController.text.trim() + '\n' + msgDetails,
-          items: preparedItems,
-          total: total,
-        );
+        if (SettingsService.telegramNotify) {
+          final msgDetails = 'Адрес: ${_addressController.text.trim()}';
+          await TelegramService.notifyDeliveryOrder(
+            name: _nameController.text.trim(),
+            phone: '+996' + _phoneController.text.trim() + '\n' + msgDetails,
+            items: preparedItems,
+            total: total,
+          );
+        }
       } catch (tgErr) {
         debugPrint('TG Notify error: $tgErr');
       }
@@ -89,55 +96,82 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
       debugPrint('Order submit error: $e');
       if (mounted) {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-           SnackBar(
-             content: Text('Ошибка оформления: $e'),
-             backgroundColor: Colors.red,
-             behavior: SnackBarBehavior.floating,
-           ),
-        );
+        _showError('Ошибка оформления: $e');
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_success) {
+    if (_success && _orderId != null) {
       return Container(
         decoration: const BoxDecoration(
           color: Color(0xFF1E1E1E),
           borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
         ),
         padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 24),
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(color: Colors.green.withOpacity(0.15), shape: BoxShape.circle),
-              child: const Icon(Icons.check_circle_rounded, color: Colors.green, size: 56),
-            ),
-            const SizedBox(height: 20),
-            Text('Заказ в обработке!', style: GoogleFonts.outfit(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            Text('Ожидайте звонка от нашего менеджера', textAlign: TextAlign.center, style: GoogleFonts.outfit(color: Colors.white54, fontSize: 15)),
-            const SizedBox(height: 32),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () => Navigator.pop(context),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFD4A043),
-                  foregroundColor: Colors.black,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: StreamBuilder<List<Map<String, dynamic>>>(
+          stream: Supabase.instance.client
+              .from('delivery_orders')
+              .stream(primaryKey: ['id'])
+              .eq('id', _orderId!),
+          builder: (context, snapshot) {
+            String statusText = 'Обработка заказа...';
+            String subText = 'Ожидайте звонка от нашего менеджера';
+            IconData icon = Icons.timer_outlined;
+            Color iconColor = Colors.orange;
+
+            if (snapshot.hasData && snapshot.data!.isNotEmpty) {
+              final status = snapshot.data!.first['status'];
+              if (status == 'processing') {
+                statusText = 'Принято, идет приготовление';
+                subText = 'Наши повара уже начали готовить ваш заказ';
+                icon = Icons.restaurant_rounded;
+                iconColor = Colors.blue;
+              } else if (status == 'done') {
+                statusText = 'Заказ принят!';
+                subText = 'Наш сотрудник свяжется с вами для подтверждения';
+                icon = Icons.check_circle_rounded;
+                iconColor = Colors.green;
+              } else if (status == 'cancelled') {
+                statusText = 'Заказ отменен';
+                subText = 'К сожалению, мы не можем выполнить ваш заказ';
+                icon = Icons.cancel_rounded;
+                iconColor = Colors.red;
+              }
+            }
+
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(height: 24),
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(color: iconColor.withOpacity(0.1), shape: BoxShape.circle),
+                  child: Icon(icon, color: iconColor, size: 56),
                 ),
-                child: Text('Закрыть', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 16)),
-              ),
-            ),
-            const SizedBox(height: 24),
-          ],
+                const SizedBox(height: 20),
+                Text(statusText, textAlign: TextAlign.center, style: GoogleFonts.outfit(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                Text(subText, textAlign: TextAlign.center, style: GoogleFonts.outfit(color: Colors.white54, fontSize: 15)),
+                const SizedBox(height: 32),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFD4A043),
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    ),
+                    child: Text('Закрыть', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 16)),
+                  ),
+                ),
+                const SizedBox(height: 24),
+              ],
+            );
+          },
         ),
       );
     }
@@ -267,7 +301,19 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
                   children: [
                     _buildField(_nameController, 'Ваше имя', Icons.person_outline_rounded),
                     const SizedBox(height: 12),
-                    _buildField(_phoneController, 'Номер телефона', Icons.phone_outlined, keyboardType: TextInputType.phone),
+                    _buildField(_phoneController, '700 123 456', Icons.phone_outlined, 
+                      keyboardType: TextInputType.phone,
+                      prefixText: '+996 ',
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                        LengthLimitingTextInputFormatter(9),
+                      ],
+                      validator: (v) {
+                        if (v == null || v.isEmpty) return 'Обязательное поле';
+                        if (v.length != 9) return 'Введите 9 цифр номера';
+                        return null;
+                      }
+                    ),
                     const SizedBox(height: 12),
                     _buildField(_addressController, 'Адрес доставки', Icons.location_on_outlined),
                     const SizedBox(height: 20),
@@ -328,16 +374,24 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
     );
   }
 
-  Widget _buildField(TextEditingController ctrl, String hint, IconData icon, {TextInputType? keyboardType}) {
+  Widget _buildField(TextEditingController ctrl, String hint, IconData icon, {
+    TextInputType? keyboardType, 
+    String? Function(String?)? validator, 
+    String? prefixText,
+    List<TextInputFormatter>? inputFormatters,
+  }) {
     return TextFormField(
       controller: ctrl,
       keyboardType: keyboardType,
-      validator: (v) => (v == null || v.isEmpty) ? 'Обязательное поле' : null,
+      validator: validator ?? (v) => (v == null || v.isEmpty) ? 'Обязательное поле' : null,
+      inputFormatters: inputFormatters,
       style: GoogleFonts.outfit(color: Colors.white),
       decoration: InputDecoration(
         hintText: hint,
         hintStyle: GoogleFonts.outfit(color: Colors.white38),
         prefixIcon: Icon(icon, color: const Color(0xFFD4A043)),
+        prefixText: prefixText,
+        prefixStyle: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold),
         filled: true,
         fillColor: Colors.white.withOpacity(0.05),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
@@ -350,5 +404,11 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
       return Image.asset(url, width: size, height: size, fit: BoxFit.cover);
     }
     return Image.network(url, width: size, height: size, fit: BoxFit.cover, errorBuilder: (_,__,___) => Container(width: size, height: size, color: Colors.white12));
+  }
+
+  void _showError(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), backgroundColor: Colors.redAccent, behavior: SnackBarBehavior.floating),
+    );
   }
 }

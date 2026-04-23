@@ -12,9 +12,11 @@ class CartProvider with ChangeNotifier {
   List<Map<String, dynamic>> _participants = [];
   bool _isLoading = true;
   String? _errorMessage;
+  String? _userName;
 
   // Список ID, удалённых локально — фильтруем их из КАЖДОГО обновления стрима
   final Set<String> _deletedIds = {};
+  bool _isReadyLocally = false;
 
   StreamSubscription? _cartSub;
   StreamSubscription? _participantSub;
@@ -27,8 +29,18 @@ class CartProvider with ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   String get deviceId => _deviceId ?? '';
+  String? get userName => _userName;
+  bool get isReadyLocally => _isReadyLocally;
   List<Map<String, dynamic>> get participants => _participants;
   int get totalItems => _items.length;
+  bool get isReady {
+    if (_deviceId == null) return false;
+    final me = _participants.firstWhere(
+      (p) => p['device_id'] == _deviceId,
+      orElse: () => {},
+    );
+    return me['is_ready'] == true || _isReadyLocally;
+  }
 
   int? get myGuestNumber {
     if (_deviceId == null) return null;
@@ -41,11 +53,38 @@ class CartProvider with ChangeNotifier {
 
   Future<void> _init() async {
     final prefs = await SharedPreferences.getInstance();
+    _userName = prefs.getString('user_name');
     _deviceId = prefs.getString('device_id');
+    
     if (_deviceId == null) {
       _deviceId = 'u_${DateTime.now().millisecondsSinceEpoch}';
       await prefs.setString('device_id', _deviceId!);
     }
+
+    // Очистка старых участников (более 4 часов назад) чтобы не копились призраки
+    try {
+      final fourHoursAgo = DateTime.now().subtract(const Duration(hours: 4)).toIso8601String();
+      final participantsRes = await Supabase.instance.client
+          .from('table_participants')
+          .delete()
+          .eq('table_id', tableId)
+          .lt('last_active', fourHoursAgo)
+          .select();
+
+      if ((participantsRes as List).isEmpty) {
+        _isReadyLocally = false;
+      }
+
+      // Удаляем "двойников" с таким же именем (если имя уже задано)
+      if (_userName != null && _userName!.isNotEmpty) {
+        await Supabase.instance.client
+            .from('table_participants')
+            .delete()
+            .eq('table_id', tableId)
+            .eq('user_name', _userName!)
+            .neq('device_id', _deviceId!);
+      }
+    } catch (_) {}
 
     try {
       await Supabase.instance.client.rpc('get_guest_number', params: {
@@ -81,6 +120,14 @@ class CartProvider with ChangeNotifier {
         .eq('table_id', tableId)
         .listen((data) {
           _participants = data;
+          
+          // Проверка: если есть участники и ВСЕ готовы, подтверждаем заказ
+          if (_participants.isNotEmpty && 
+              _participants.every((p) => p['is_ready'] == true) &&
+              _items.any((it) => it.status == 'ordering')) {
+            confirmOrder();
+          }
+          
           notifyListeners();
         });
   }
@@ -102,6 +149,7 @@ class CartProvider with ChangeNotifier {
           'menu_item_id': menuItemId,
           'quantity': quantity,
           'added_by': _deviceId,
+          'user_name': _userName,
           'status': 'ordering',
         });
       }
@@ -133,18 +181,46 @@ class CartProvider with ChangeNotifier {
 
   Future<void> confirmOrder() async {
     try {
+      // 1. Все товары в 'confirmed'
       await Supabase.instance.client
           .from('orders_new')
           .update({'status': 'confirmed'})
           .eq('table_id', tableId)
           .eq('status', 'ordering');
 
-      await Supabase.instance.client.from('table_sessions').upsert({
-        'table_id': tableId,
-        'status': 'confirmed',
-      });
+      // 2. Сессия стола в 'confirmed' (для звука в админке)
+      try {
+        await Supabase.instance.client.from('table_sessions').upsert({
+          'table_id': tableId,
+          'status': 'confirmed',
+          'updated_at': DateTime.now().toIso8601String(),
+        });
+      } catch (e) {
+        debugPrint('Skip table_sessions update: $e');
+      }
+
+      // 3. Сбрасываем готовность всех участников для следующего круга
+      await Supabase.instance.client
+          .from('table_participants')
+          .update({'is_ready': false})
+          .eq('table_id', tableId);
+          
     } catch (e) {
       _showError("Ошибка подтверждения");
+    }
+  }
+
+  Future<void> toggleReady() async {
+    if (_deviceId == null) return;
+    final currentStatus = isReady;
+    try {
+      await Supabase.instance.client
+          .from('table_participants')
+          .update({'is_ready': !currentStatus})
+          .eq('table_id', tableId)
+          .eq('device_id', _deviceId!);
+    } catch (e) {
+      _showError("Ошибка статуса");
     }
   }
 
@@ -195,5 +271,22 @@ class CartProvider with ChangeNotifier {
     _cartSub?.cancel();
     _participantSub?.cancel();
     super.dispose();
+  }
+
+  Future<void> setUserName(String name) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('user_name', name);
+    _userName = name;
+    
+    // Также обновляем имя в списке участников стола в базе
+    try {
+      await Supabase.instance.client
+          .from('table_participants')
+          .update({'user_name': name})
+          .eq('table_id', tableId)
+          .eq('device_id', deviceId);
+    } catch (_) {}
+    
+    notifyListeners();
   }
 }

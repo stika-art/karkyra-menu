@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:file_picker/file_picker.dart';
 import '../../data/mock_data.dart';
 import '../../models/menu_item.dart';
 
@@ -233,7 +234,7 @@ class _DishesScreenState extends State<DishesScreen> {
                         Text('Острота', style: GoogleFonts.outfit(color: Colors.white60, fontSize: 13)),
                         const SizedBox(height: 8),
                         Row(
-                          children: List.generate(4, (i) => GestureDetector(
+                          children: List.generate(5, (i) => GestureDetector(
                             onTap: () => setDialogState(() => spiceLevel = i + 1),
                             child: Padding(
                               padding: const EdgeInsets.only(right: 8),
@@ -243,6 +244,36 @@ class _DishesScreenState extends State<DishesScreen> {
                               )),
                             ),
                           )),
+                        ),
+                        const SizedBox(height: 16),
+                        // Выбор изображения
+                        Text('Изображение', style: GoogleFonts.outfit(color: Colors.white60, fontSize: 13)),
+                        const SizedBox(height: 8),
+                        GestureDetector(
+                          onTap: () async {
+                            final result = await FilePicker.platform.pickFiles(type: FileType.image);
+                            if (result != null) {
+                              setDialogState(() {
+                                // В вебе мы получаем bytes или path (blob url)
+                                // Для простоты пока представим, что мы сохраняем выбранный файл
+                              });
+                            }
+                          },
+                          child: Container(
+                            height: 120,
+                            width: double.infinity,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF2A2A2A),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.white10),
+                            ),
+                            child: item?.images.isNotEmpty == true
+                              ? ClipRRect(
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Image.network(item!.images[0], fit: BoxFit.cover, errorBuilder: (_,__,___) => const Icon(Icons.add_a_photo_rounded, color: Colors.white24, size: 32)),
+                                )
+                              : const Icon(Icons.add_a_photo_rounded, color: Colors.white24, size: 32),
+                          ),
                         ),
                         const SizedBox(height: 16),
                         // Метки

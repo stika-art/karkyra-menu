@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:async';
 import 'dart:ui';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:video_player/video_player.dart';
@@ -12,7 +13,7 @@ import 'models/menu_item.dart';
 import 'models/category.dart';
 import 'services/cart_provider.dart';
 import 'models/cart_item.dart';
-import 'admin/admin_app.dart';
+import 'admin/admin_app.dart' as admin;
 import 'guest/delivery_screen.dart';
 import 'services/settings_service.dart';
 import 'services/menu_data_service.dart';
@@ -21,59 +22,74 @@ import 'services/telegram_service.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:js' as js;
 
-List<Category> get categories => MenuDataService.categories;
+List<Category> get categories {
+  // Получаем список из базы и убираем оттуда категорию с id '0', если она там есть
+  final dbCats = MenuDataService.categories.where((c) => c.id != '0').toList();
+  
+  // Всегда добавляем нашу виртуальную категорию "Все блюда" в начало
+  return [
+    Category(id: '0', title: 'Все блюда', emoji: '🍽️'),
+    ...dbCats,
+  ];
+}
 List<MenuItem> get menuItems => MenuDataService.items;
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  
-  // Инициализация Supabase с защитой от ошибок
-  try {
-    await Supabase.initialize(
+  runZonedGuarded(() async {
+    WidgetsFlutterBinding.ensureInitialized();
+    
+    // Инициализация Supabase (без await, чтобы не блокировать UI)
+    Supabase.initialize(
       url: 'https://vgzdpbwcenckmjtgfvfw.supabase.co',
       anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZnemRwYndjZW5ja21qdGdmdmZ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2NDkxODAsImV4cCI6MjA5MjIyNTE4MH0.pFmPP9A9Tov4b6URS-LP5b3lYyB0fVXTKDvLY_MR120',
+    ).catchError((e) => debugPrint('Supabase init error: $e'));
+
+    // Фоновая загрузка данных
+    SettingsService.load();
+    MenuDataService.load();
+
+    SystemChrome.setSystemUIOverlayStyle(
+      const SystemUiOverlayStyle(
+        statusBarColor: Colors.black,
+        statusBarBrightness: Brightness.dark,
+      ),
     );
-  } catch (e) {
-    debugPrint('Supabase init error: $e');
-  }
+    
+    final params = Uri.base.queryParameters;
+    final String tableId = params['table'] ?? '1';
+    final bool isDeliveryMode = !params.containsKey('table');
 
-  // Запускаем загрузку данных в фоне, не дожидаясь ответа от сервера в main(),
-  // чтобы приложение не висело на индикаторе загрузки браузера.
-  SettingsService.load();
-  MenuDataService.load();
+    if (params.containsKey('admin')) {
+      runApp(const admin.AdminApp());
+    } else {
+      runApp(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider(create: (_) => CartProvider(tableId: tableId)),
+            ChangeNotifierProvider(create: (_) => FavoritesProvider()),
+          ],
+          child: MenuApp(isDeliveryMode: isDeliveryMode, tableId: tableId),
+        ),
+      );
+    }
+    
+    // Скрываем лоадер через короткую паузу, чтобы Flutter успел отрисовать первый кадр
+    Future.delayed(const Duration(milliseconds: 500), () => _hideLoader());
 
-  SystemChrome.setSystemUIOverlayStyle(
-    const SystemUiOverlayStyle(
-      statusBarColor: Colors.black,
-      statusBarBrightness: Brightness.dark,
-    ),
-  );
-  
-  // Роут на админку: ?admin=1
-  final params = Uri.base.queryParameters;
-  if (params.containsKey('admin')) {
-    runApp(const AdminApp());
-    return;
-  }
+  }, (error, stack) {
+    debugPrint('GLOBAL ERROR: $error');
+    debugPrint('STACK: $stack');
+  });
+}
 
-  // Определяем режим: стол или доставка
-  final String? tableParam = params['table'];
-  final String tableId = tableParam ?? '1';
-  final bool isDeliveryMode = tableParam == null;
-  
-  runApp(
-    MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (_) => CartProvider(tableId: tableId)),
-        ChangeNotifierProvider(create: (_) => FavoritesProvider()),
-      ],
-      child: MenuApp(isDeliveryMode: isDeliveryMode, tableId: tableId),
-    ),
-  );
-
-  // Скрываем загрузчик в вебе
+void _hideLoader() {
   if (kIsWeb) {
-    js.context.callMethod('removeFlutterLoader');
+    try {
+      // Более простой и надежный способ вызова
+      js.context.callMethod('removeFlutterLoader');
+    } catch (e) {
+      debugPrint('Error hiding loader: $e');
+    }
   }
 }
 
@@ -113,57 +129,114 @@ class MenuHomeScreen extends StatefulWidget {
 }
 
 class _MenuHomeScreenState extends State<MenuHomeScreen> {
-  String selectedCategoryId = '0'; // '0' is 'Все'
+  String selectedCategoryId = '0'; 
   String? activeQuickFilter; // To track Top, New, etc.
   final ScrollController _categoryScrollController = ScrollController();
-  final List<VideoPlayerController> _videoControllers = [];
+  List<Map<String, String>> _banners = [];
+  final Map<int, VideoPlayerController> _videoControllers = {};
   final PageController _bannerPageController = PageController();
   int _currentVideoIndex = 0;
   bool _isMuted = true;
+  Timer? _imageTimer;
+  RealtimeChannel? _waiterCallChannel;
+  bool _isMenuLoading = true;
+  bool _isWaiterComing = false;
 
   // _videoAssets list removed since we use dynamic bannerUrl
 
   @override
   void initState() {
     super.initState();
-    _initializeVideos();
+    _loadMenuData();
   }
 
-  void _initializeVideos() async {
-    final asset = MenuDataService.bannerUrl ?? 'assets/videos/test.mp4';
-    final controller = asset.startsWith('assets/')
-        ? VideoPlayerController.asset(asset)
-        : VideoPlayerController.networkUrl(Uri.parse(asset));
-      try {
-        await controller.initialize();
-        controller.setLooping(false); 
-        controller.setVolume(0);
+  Future<void> _loadMenuData() async {
+    try {
+      // Ставим таймаут, чтобы не висеть вечно если интернет плохой
+      await MenuDataService.load().timeout(const Duration(seconds: 5));
+    } catch (e) {
+      debugPrint('LOAD MENU ERROR: $e');
+    } finally {
+      if (mounted) {
+        _banners = MenuDataService.banners;
+        _initializeVideos();
+        setState(() => _isMenuLoading = false);
         
-        controller.addListener(() {
-          if (controller.value.position >= controller.value.duration && 
-              !controller.value.isPlaying) {
-             _playNextVideo();
-          }
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _askUserName();
         });
-        
-        setState(() {
-          _videoControllers.add(controller);
-        });
-      } catch (e) {
-        print('Error initializing $asset: $e');
       }
-
-    // We only have one dynamic video banner string now.
-    if (_videoControllers.isNotEmpty) {
-      _videoControllers[0].play();
     }
-    setState(() {});
+  }
+
+  void _initializeVideos() {
+    // Запускаем инициализацию всех видео ПАРАЛЛЕЛЬНО
+    for (int i = 0; i < _banners.length; i++) {
+      final banner = _banners[i];
+      if (banner['type'] == 'video') {
+        final url = banner['url']!;
+        final controller = url.startsWith('assets/')
+            ? VideoPlayerController.asset(url)
+            : VideoPlayerController.networkUrl(Uri.parse(url));
+            
+        // Не ждем await здесь, чтобы запустить все сразу
+        controller.initialize().then((_) {
+          controller.setLooping(false);
+          controller.setVolume(_isMuted ? 0 : 1.0);
+          
+          // Если это текущее видео — запускаем сразу
+          if (i == _currentVideoIndex) {
+            controller.play();
+          }
+          
+          controller.addListener(() {
+            if (_currentVideoIndex == i && mounted) {
+              final pos = controller.value.position;
+              final dur = controller.value.duration;
+              if (pos >= dur && dur > Duration.zero && !controller.value.isPlaying) {
+                _playNextVideo();
+              }
+            }
+          });
+          
+          if (mounted) setState(() {}); // Перерисовываем, когда видео готово
+        }).catchError((e) {
+          debugPrint('Error initializing video $url: $e');
+        });
+        
+        _videoControllers[i] = controller;
+      }
+    }
+    
+    if (mounted) {
+      setState(() {});
+      _startCurrentMedia();
+    }
+  }
+
+  void _startCurrentMedia() {
+    _imageTimer?.cancel();
+    if (_banners.isEmpty) return;
+    
+    final current = _banners[_currentVideoIndex];
+    if (current['type'] == 'video') {
+      final controller = _videoControllers[_currentVideoIndex];
+      if (controller != null) {
+        controller.seekTo(Duration.zero);
+        controller.play();
+      }
+    } else {
+      // Это изображение, ждем 5 секунд и переключаем
+      _imageTimer = Timer(const Duration(seconds: 5), () {
+        if (mounted) _playNextVideo();
+      });
+    }
   }
 
   void _playNextVideo() {
-    if (_videoControllers.isEmpty) return;
+    if (_banners.isEmpty) return;
     
-    int nextIndex = (_currentVideoIndex + 1) % _videoControllers.length;
+    int nextIndex = (_currentVideoIndex + 1) % _banners.length;
     _bannerPageController.animateToPage(
       nextIndex,
       duration: const Duration(milliseconds: 800),
@@ -171,23 +244,140 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
     );
   }
 
+  void _onBannerChanged(int index) {
+    if (_banners.isEmpty) return;
+    
+    // Останавливаем предыдущее видео
+    final prevController = _videoControllers[_currentVideoIndex];
+    if (prevController != null) {
+      prevController.pause();
+    }
+    
+    setState(() {
+      _currentVideoIndex = index;
+    });
+    
+    // Запускаем новое медиа (видео или таймер фото)
+    _startCurrentMedia();
+  }
+
   void _toggleMute() {
     setState(() {
       _isMuted = !_isMuted;
-      for (var controller in _videoControllers) {
+      _videoControllers.forEach((_, controller) {
         controller.setVolume(_isMuted ? 0 : 1.0);
-      }
+      });
     });
   }
 
   @override
   void dispose() {
-    for (var controller in _videoControllers) {
-      controller.dispose();
-    }
+    _imageTimer?.cancel();
+    _waiterCallChannel?.unsubscribe();
+    _videoControllers.forEach((_, controller) => controller.dispose());
     _categoryScrollController.dispose();
     _bannerPageController.dispose();
     super.dispose();
+  }
+
+  void _askUserName() async {
+    // Ждем секунду, чтобы CartProvider успел загрузить имя из SharedPreferences
+    await Future.delayed(const Duration(milliseconds: 800));
+    if (!mounted) return;
+
+    final cart = Provider.of<CartProvider>(context, listen: false);
+    
+    // Если имя уже есть в памяти — ничего не показываем
+    if (cart.userName != null && cart.userName!.isNotEmpty) return;
+
+    if (!mounted) return;
+    
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => WillPopScope(
+        onWillPop: () async => false,
+        child: Dialog(
+          backgroundColor: const Color(0xFF1E1E1E),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFD4A043).withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.person_outline_rounded, color: Color(0xFFD4A043), size: 32),
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  "ДОБРО ПОЖАЛОВАТЬ",
+                  style: GoogleFonts.outfit(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 2,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  "Как нам к вам обращаться?",
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.outfit(color: Colors.white54, fontSize: 14),
+                ),
+                const SizedBox(height: 32),
+                TextField(
+                  controller: controller,
+                  autofocus: true,
+                  style: GoogleFonts.outfit(color: Colors.white),
+                  textAlign: TextAlign.center,
+                  decoration: InputDecoration(
+                    hintText: "Ваше имя",
+                    hintStyle: GoogleFonts.outfit(color: Colors.white24),
+                    filled: true,
+                    fillColor: Colors.white.withOpacity(0.05),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: BorderSide.none,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 18),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      final name = controller.text.trim();
+                      if (name.length >= 2) {
+                        cart.setUserName(name);
+                        Navigator.pop(ctx);
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFD4A043),
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(vertical: 18),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      elevation: 0,
+                    ),
+                    child: Text(
+                      "НАЧАТЬ",
+                      style: GoogleFonts.outfit(fontWeight: FontWeight.bold, letterSpacing: 1),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   void _onCategorySelected(int index, String categoryId) {
@@ -222,8 +412,10 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
     final isDesktop = screenWidth > 900;
     
     return Scaffold(
-      backgroundColor: AppTheme.backgroundColor,
-      body: Center(
+      backgroundColor: Colors.grey.shade50, // Светлый фон, чуть темнее белого
+      body: _isMenuLoading 
+      ? const Center(child: CircularProgressIndicator(color: Color(0xFFD4A043)))
+      : Center(
         child: Container(
           constraints: BoxConstraints(maxWidth: isDesktop ? 600 : double.infinity),
           child: Stack(
@@ -259,15 +451,72 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
                   ),
                 ),
               ),
-              // Отдельная кнопка вызова официанта в правом нижнем углу
-              Positioned(
-                bottom: 30,
-                right: 20,
-                child: _buildFloatingWaiterButton(),
-              ),
+              if (_isWaiterComing) _buildWaiterPanel(),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildWaiterPanel() {
+    return Positioned(
+      top: 100,
+      left: 20,
+      right: 20,
+      child: TweenAnimationBuilder<double>(
+        tween: Tween(begin: 0.0, end: 1.0),
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.easeOutBack,
+        builder: (context, value, child) {
+          return Transform.translate(
+            offset: Offset(0, (1 - value) * -50),
+            child: Opacity(
+              opacity: value.clamp(0.0, 1.0),
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(24),
+                  boxShadow: [
+                    BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 20, offset: const Offset(0, 10))
+                  ],
+                  border: Border.all(color: const Color(0xFFD4A043).withOpacity(0.3), width: 1),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: const BoxDecoration(color: Color(0xFFE8F5E9), shape: BoxShape.circle),
+                      child: const Icon(Icons.check_circle, color: Colors.green, size: 24),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'Официант в пути!',
+                            style: GoogleFonts.outfit(fontWeight: FontWeight.w900, fontSize: 18, color: Colors.black),
+                          ),
+                          Text(
+                            'Пожалуйста, ожидайте, он скоро будет у вас.',
+                            style: GoogleFonts.outfit(color: Colors.black87, fontSize: 13),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.grey, size: 20),
+                      onPressed: () => setState(() => _isWaiterComing = false),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -345,25 +594,62 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
         if (!widget.isDeliveryMode)
           IconButton(
             onPressed: () async {
-              // 1. Отправляем в базу
               try {
-                await Supabase.instance.client.from('waiter_calls').insert({
+                // 1. Отправляем в базу
+                final res = await Supabase.instance.client.from('waiter_calls').insert({
                   'table_id': widget.tableId,
                   'status': 'pending',
-                });
-              } catch (_) {}
+                }).select().single();
 
-              // 2. Отправляем в телеграм
-              await TelegramService.notifyWaiterCall(tableId: widget.tableId);
-              
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Официант вызван к столу №${widget.tableId}'),
-                    backgroundColor: const Color(0xFFD4A043),
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
+                final callId = res['id'];
+
+                // 2. Подписываемся на ответ официанта
+                _waiterCallChannel?.unsubscribe();
+                _waiterCallChannel = Supabase.instance.client
+                    .channel('waiter_response_$callId')
+                    .onPostgresChanges(
+                      event: PostgresChangeEvent.update,
+                      schema: 'public',
+                      table: 'waiter_calls',
+                      filter: PostgresChangeFilter(
+                        type: PostgresChangeFilterType.eq,
+                        column: 'id',
+                        value: callId,
+                      ),
+                      callback: (payload) {
+                        final newStatus = payload.newRecord['status'];
+                        if (newStatus == 'accepted' && mounted) {
+                          setState(() => _isWaiterComing = true);
+                          
+                          // Звук (через системный клик + JS beep для веба)
+                          SystemSound.play(SystemSoundType.click);
+                          if (kIsWeb) {
+                            try {
+                              js.context.callMethod('eval', ["new Audio('https://assets.mixkit.io/active_storage/sfx/2568/2568-preview.mp3').play()"]);
+                            } catch (_) {}
+                          }
+                          
+                          _waiterCallChannel?.unsubscribe();
+                        }
+                      },
+                    );
+                _waiterCallChannel?.subscribe();
+
+                if (SettingsService.telegramNotify) {
+                  await TelegramService.notifyWaiterCall(tableId: widget.tableId);
+                }
+                
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Официант вызван к столу №${widget.tableId}'),
+                      backgroundColor: const Color(0xFFD4A043),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
+              } catch (e) {
+                debugPrint('Call error: $e');
               }
             },
             icon: const Icon(Icons.notifications_active_rounded, color: Color(0xFFD4A043)),
@@ -390,31 +676,46 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
                     child: AnimatedOpacity(
                       opacity: cart.totalItems > 0 ? 1.0 : 0.4,
                       duration: const Duration(milliseconds: 200),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFD4A043),
-                          borderRadius: BorderRadius.circular(22),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (cart.totalItems > 0) ...[
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withOpacity(0.2),
-                                  borderRadius: BorderRadius.circular(8),
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        alignment: Alignment.topRight,
+                        children: [
+                          Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.1),
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white24, width: 1),
+                            ),
+                            child: const Icon(Icons.local_taxi_rounded, color: Colors.white, size: 22),
+                          ),
+                          if (cart.totalItems > 0)
+                            Positioned(
+                              right: -4,
+                              top: -4,
+                              child: Container(
+                                padding: const EdgeInsets.all(6),
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFFFF6D3F),
+                                  shape: BoxShape.circle,
                                 ),
-                                child: Text('${cart.totalItems}',
-                                  style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                                constraints: const BoxConstraints(
+                                  minWidth: 20,
+                                  minHeight: 20,
+                                ),
+                                child: Text(
+                                  '${cart.totalItems}',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
                               ),
-                              const SizedBox(width: 8),
-                            ],
-                            Text('Заказать',
-                              style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                          ],
-                        ),
+                            ),
+                        ],
                       ),
                     ),
                   );
@@ -426,7 +727,7 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => const SharedCartScreen(),
+                        builder: (context) => SharedCartScreen(tableNumber: Provider.of<CartProvider>(context, listen: false).tableId),
                       ),
                     );
                   },
@@ -485,12 +786,17 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
     return VisibilityDetector(
       key: const Key('main_banner_detector'),
       onVisibilityChanged: (info) {
-        if (_videoControllers.isNotEmpty) {
-          if (info.visibleFraction == 0) {
-            _videoControllers[_currentVideoIndex].pause();
-          } else {
-            // Restore playback only if it's the currently focused video
-            _videoControllers[_currentVideoIndex].play();
+        if (_banners.isNotEmpty) {
+          final current = _banners[_currentVideoIndex];
+          if (current['type'] == 'video') {
+            final controller = _videoControllers[_currentVideoIndex];
+            if (controller != null && controller.value.isInitialized) {
+              if (info.visibleFraction == 0) {
+                controller.pause();
+              } else {
+                controller.play();
+              }
+            }
           }
         }
       },
@@ -499,54 +805,49 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
       margin: const EdgeInsets.only(bottom: 12), 
       height: screenHeight * 0.55, 
       decoration: BoxDecoration(
-        color: Colors.black,
+        color: Colors.grey.shade200,
         borderRadius: const BorderRadius.vertical(
-          bottom: Radius.circular(40), // Large premium rounding only at the bottom
+          bottom: Radius.circular(40),
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
-          ),
-        ],
       ),
       clipBehavior: Clip.antiAlias,
       child: Stack(
         children: [
-          // Video Carousel
-          _videoControllers.isEmpty
-              ? Image.network('assets/images/restaurant_banner.png', fit: BoxFit.cover)
+          // Media Carousel
+          _banners.isEmpty
+              ? Container(color: Colors.grey.shade200)
               : PageView.builder(
                   controller: _bannerPageController,
-                  onPageChanged: (index) {
-                    setState(() => _currentVideoIndex = index);
-                    for (var i = 0; i < _videoControllers.length; i++) {
-                      if (i == index) {
-                        _videoControllers[i].play();
-                      } else {
-                        _videoControllers[i].pause();
-                      }
-                    }
-                  },
-                  itemCount: _videoControllers.length,
+                  onPageChanged: _onBannerChanged,
+                  itemCount: _banners.length,
                   itemBuilder: (context, index) {
-                    final controller = _videoControllers[index];
-                    if (!controller.value.isInitialized) {
-                      return const Center(child: CircularProgressIndicator(color: Colors.white24));
-                    }
-                    return IgnorePointer(
-                      ignoring: true,
-                      child: FittedBox(
-                        fit: BoxFit.cover,
-                        alignment: Alignment.center,
-                        child: SizedBox(
-                          width: controller.value.size.width,
-                          height: controller.value.size.height,
-                          child: VideoPlayer(controller),
+                    final banner = _banners[index];
+                    if (banner['type'] == 'video') {
+                      final controller = _videoControllers[index];
+                      if (controller == null || !controller.value.isInitialized) {
+                        return _buildBannerPlaceholder(banner);
+                      }
+                      return IgnorePointer(
+                        ignoring: true,
+                        child: FittedBox(
+                          fit: BoxFit.cover,
+                          alignment: Alignment.center,
+                          child: SizedBox(
+                            width: controller.value.size.width,
+                            height: controller.value.size.height,
+                            child: VideoPlayer(controller),
+                          ),
                         ),
-                      ),
-                    );
+                      );
+                    } else {
+                      // Изображение
+                      return Image.network(
+                        banner['url']!,
+                        fit: BoxFit.cover,
+                        width: double.infinity,
+                        height: double.infinity,
+                      );
+                    }
                   },
                 ),
           // Ultra-soft gradient overlay
@@ -559,11 +860,11 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: [
-                      Colors.black.withOpacity(0.2), // Light darkening for logo
+                      Colors.black.withOpacity(0.2),
                       Colors.transparent,
                       Colors.transparent,
-                      Colors.black.withOpacity(0.05), // Subtle depth
-                      Colors.black.withOpacity(0.15), // Very clean bottom fade
+                      Colors.black.withOpacity(0.05),
+                      Colors.black.withOpacity(0.15),
                     ],
                     stops: const [0.0, 0.15, 0.5, 0.85, 1.0],
                   ),
@@ -572,14 +873,14 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
             ),
           ),
           // Pagination Dots
-          if (_videoControllers.length > 1)
+          if (_banners.length > 1)
             Positioned(
               bottom: 24,
               left: 0,
               right: 0,
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(_videoControllers.length, (index) {
+                children: List.generate(_banners.length, (index) {
                   return AnimatedContainer(
                     duration: const Duration(milliseconds: 300),
                     margin: const EdgeInsets.symmetric(horizontal: 4),
@@ -587,7 +888,7 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
                     height: 6,
                     decoration: BoxDecoration(
                       color: _currentVideoIndex == index 
-                          ? Colors.white 
+                          ? const Color(0xFFD4A043) 
                           : Colors.white.withOpacity(0.4),
                       borderRadius: BorderRadius.circular(3),
                     ),
@@ -596,26 +897,27 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
               ),
             ),
           // Sound Toggle Button
-          Positioned(
-            bottom: 20,
-            right: 20,
-            child: GestureDetector(
-              onTap: _toggleMute,
-              child: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.3),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white12, width: 1),
-                ),
-                child: Icon(
-                  _isMuted ? Icons.volume_off_rounded : Icons.volume_up_rounded,
-                  color: Colors.white,
-                  size: 16,
+          if (_banners.isNotEmpty && _banners[_currentVideoIndex]['type'] == 'video')
+            Positioned(
+              bottom: 20,
+              right: 20,
+              child: GestureDetector(
+                onTap: _toggleMute,
+                child: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.3),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white12, width: 1),
+                  ),
+                  child: Icon(
+                    _isMuted ? Icons.volume_off_rounded : Icons.volume_up_rounded,
+                    color: Colors.white,
+                    size: 16,
+                  ),
                 ),
               ),
             ),
-          ),
         ],
       ),
     ));
@@ -842,47 +1144,7 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
     );
   }
 
-  Widget _buildFloatingWaiterButton() {
-    return Container(
-      decoration: BoxDecoration(
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFFFF6D3F).withOpacity(0.3),
-            blurRadius: 15,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      child: Material(
-        color: const Color(0xFFFF6D3F),
-        borderRadius: BorderRadius.circular(30),
-        child: InkWell(
-          onTap: () {
-            // Logic for calling waiter
-          },
-          borderRadius: BorderRadius.circular(30),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.notifications_active_rounded, color: Colors.white, size: 22),
-                const SizedBox(width: 10),
-                Text(
-                  'Вызвать официанта',
-                  style: GoogleFonts.outfit(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 15,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+
 
   // Removing the old bottom bar as it's no longer needed in this separate design
   Widget _buildBottomBar() {
@@ -912,7 +1174,11 @@ class _MenuItemCard extends StatelessWidget {
               child: Stack(
                 children: [
                   Positioned.fill(
-                    child: _buildSmartImage(item.images[0]),
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        return _buildSmartImage(item.images[0], width: constraints.maxWidth, height: constraints.maxHeight);
+                      }
+                    ),
                   ),
                   Positioned(
                     top: 12,
@@ -938,29 +1204,22 @@ class _MenuItemCard extends StatelessWidget {
                       },
                     ),
                   ),
-                  if (item.isHit)
-                    Positioned(
-                      top: 12,
-                      left: 12,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFF6D3F),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Text(
-                          'Хит',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
+                  Positioned(
+                    top: 10,
+                    left: 10,
+                    right: 44, // Чтобы не перекрывать кнопку избранного
+                    child: Wrap(
+                      spacing: 4,
+                      runSpacing: 4,
+                      children: [
+                        if (item.isTop) _buildBadge('Топ', const Color(0xFF8B4513)),
+                        if (item.isNew) _buildBadge('Новинка', const Color(0xFFFFC107)),
+                        if (item.isChefChoice) _buildBadge('От шефа', const Color(0xFF556B2F)),
+                        if (item.isPromo) _buildBadge('Акция', const Color(0xFF00ACC1)),
+                        if (item.isHit) _buildBadge('Хит', const Color(0xFFFF6D3F)),
+                      ],
                     ),
+                  ),
                 ],
               ),
             ),
@@ -1029,6 +1288,32 @@ class _MenuItemCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildBadge(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.9),
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Text(
+        text,
+        style: GoogleFonts.outfit(
+          color: Colors.white,
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.5,
+        ),
       ),
     );
   }
@@ -1148,7 +1433,7 @@ class _MenuItemDetailSheetState extends State<_MenuItemDetailSheet> {
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
                                   color: _currentImageIndex == entry.key
-                                      ? Colors.white
+                                      ? const Color(0xFFD4A043)
                                       : Colors.white.withOpacity(0.5),
                                 ),
                               );
@@ -1229,11 +1514,7 @@ class _MenuItemDetailSheetState extends State<_MenuItemDetailSheet> {
                                         width: double.infinity,
                                         color: Colors.white,
                                         child: imagePath != null 
-                                          ? Image.network(
-                                              imagePath,
-                                              fit: BoxFit.cover,
-                                              errorBuilder: (context, error, stackTrace) => const Icon(Icons.restaurant, color: Colors.grey, size: 24),
-                                            )
+                                          ? _buildSmartImage(imagePath)
                                           : const Icon(Icons.restaurant, color: Colors.grey, size: 24),
                                       ),
                                     ),
@@ -1538,7 +1819,8 @@ class _MenuItemDetailSheetState extends State<_MenuItemDetailSheet> {
 }
 
 class SharedCartScreen extends StatefulWidget {
-  const SharedCartScreen({super.key});
+  final String tableNumber;
+  const SharedCartScreen({super.key, required this.tableNumber});
 
   @override
   State<SharedCartScreen> createState() => _SharedCartScreenState();
@@ -1546,7 +1828,8 @@ class SharedCartScreen extends StatefulWidget {
 
 class _SharedCartScreenState extends State<SharedCartScreen> {
   String _splitMode = 'all'; // 'all', 'equal', 'mine'
-  int _guestCount = 2;
+  int _guestCount = 1;
+  bool _isGuestCountManual = false; // Отслеживаем, менял ли пользователь число вручную
 
   @override
   void initState() {
@@ -1591,21 +1874,19 @@ class _SharedCartScreenState extends State<SharedCartScreen> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             IconButton(
-                              icon: const Icon(Icons.arrow_back_ios, color: Colors.white, size: 20),
+                              icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 20),
                               onPressed: () => Navigator.pop(context),
                             ),
                             Text(
-                              "КОРЗИНА СТОЛА №${cart.tableId}",
-                              style: GoogleFonts.forum(
+                              "КОРЗИНА СТОЛА № ${widget.tableNumber}",
+                              style: GoogleFonts.outfit(
                                 color: Colors.white,
-                                fontSize: 18,
-                                letterSpacing: 4,
+                                fontSize: 20,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 2,
                               ),
                             ),
-                            IconButton(
-                              icon: const Icon(Icons.refresh_rounded, color: Colors.white, size: 20),
-                              onPressed: () => cart.clearTable(),
-                            ),
+                            const SizedBox(width: 48), // Заглушка вместо кнопки обновления для центровки
                           ],
                         ),
                         const Spacer(),
@@ -1682,10 +1963,26 @@ class _SharedCartScreenState extends State<SharedCartScreen> {
   }
 
   Widget _buildCartBody(CartProvider cart) {
+    // Автоматически обновляем количество гостей, если режим "Поровну" и пользователь не менял его вручную
+    if (_splitMode == 'equal' && !_isGuestCountManual) {
+      final actualParticipants = cart.participants.length;
+      // Если участников 0 (в начале загрузки), ставим минимум 1
+      final targetCount = actualParticipants > 0 ? actualParticipants : 1;
+      if (_guestCount != targetCount) {
+        // Используем WidgetsBinding, чтобы избежать ошибки setState во время билда
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) setState(() => _guestCount = targetCount);
+        });
+      }
+    }
+
     double totalForTable = 0;
     double totalForMe = 0;
     for (var item in cart.items) {
-      final menuItem = menuItems.firstWhere((m) => m.id == item.menuItemId);
+      final foundItems = menuItems.where((m) => m.id == item.menuItemId);
+      if (foundItems.isEmpty) continue;
+      
+      final menuItem = foundItems.first;
       double price = menuItem.price * item.quantity;
       totalForTable += price;
       if (item.addedBy == cart.deviceId) {
@@ -1709,110 +2006,72 @@ class _SharedCartScreenState extends State<SharedCartScreen> {
                   Text("Кол-во гостей: ", style: GoogleFonts.outfit()),
                   _buildCountBtn(Icons.remove, () {
                     if (_guestCount > 1) {
-                      setState(() => _guestCount--);
+                      setState(() {
+                        _guestCount--;
+                        _isGuestCountManual = true;
+                      });
                     }
                   }),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: Text("$_guestCount", style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
                   ),
-                  _buildCountBtn(Icons.add, () => setState(() => _guestCount++)),
+                  _buildCountBtn(Icons.add, () {
+                    setState(() {
+                      _guestCount++;
+                      _isGuestCountManual = true;
+                    });
+                  }),
                 ],
               ),
             ),
           Expanded(
-            child: ListView.builder(
-              key: ValueKey('cart_list_${cart.items.length}'),
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              itemCount: cart.items.length,
-              itemBuilder: (context, index) {
-                final cartItem = cart.items[index];
-                final menuItem = menuItems.firstWhere((m) => m.id == cartItem.menuItemId);
-                final isMine = cartItem.addedBy == cart.deviceId;
+            child: () {
+              final orderingItems = cart.items.where((it) => it.status == 'ordering').toList();
+              final confirmedItems = cart.items.where((it) => it.status != 'ordering').toList();
 
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 15),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    border: isMine ? Border.all(color: const Color(0xFFFFD166), width: 1) : null,
-                    boxShadow: [
-                      BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10),
-                    ],
-                  ),
-                  child: Row(
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(10),
-                        child: _buildSmartImage(menuItem.images.first, width: 60, height: 60),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(menuItem.title, style: GoogleFonts.outfit(fontWeight: FontWeight.w600, color: Colors.black)),
-                            Consumer<CartProvider>(
-                              builder: (context, cart, child) {
-                                final participant = cart.participants.firstWhere(
-                                  (p) => p['device_id'] == cartItem.addedBy,
-                                  orElse: () => {},
-                                );
-                                final number = participant['guest_number'];
-                                final isMe = cartItem.addedBy == cart.deviceId;
-                                
-                                return Text(
-                                  isMe ? "Вы (Гость №${cart.myGuestNumber ?? '?'})" : "Гость №${number ?? '?'}",
-                                  style: GoogleFonts.outfit(
-                                    color: isMe ? const Color(0xFFE09E00) : Colors.black, 
-                                    fontSize: 11,
-                                    fontWeight: isMe ? FontWeight.bold : FontWeight.w500,
-                                  ),
-                                );
-                              },
-                            ),
-                          ],
-                        ),
-                      ),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text("x${cartItem.quantity}", style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
-                          if (cartItem.status == 'confirmed')
-                            Padding(
-                              padding: const EdgeInsets.only(top: 4),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(Icons.check_circle_outline, size: 12, color: Colors.green),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    "Заказано", 
-                                    style: GoogleFonts.outfit(color: Colors.green, fontSize: 10, fontWeight: FontWeight.bold)
-                                  ),
-                                ],
-                              ),
-                            ),
-                        ],
-                      ),
-                      const SizedBox(width: 8),
-                      // Кнопка удаления (доступна всем для общего стола)
-                      if (cartItem.status == 'ordering')
-                        IconButton(
-                          icon: const Icon(Icons.close, size: 18, color: Colors.redAccent),
-                          onPressed: () {
-                            debugPrint('--- UI: Click delete on ${cartItem.id}');
-                            cart.removeFromCart(cartItem.id);
-                          },
-                        )
-                      else if (isMine && cartItem.status == 'confirmed')
-                        const SizedBox(width: 48), // Место, где был бы крестик
-                    ],
-                  ),
-                );
-              },
-            ),
+              // Функция группировки с сортировкой (Вы — первые)
+              List<Map<String, dynamic>> group(List<CartItem> list) {
+                final Map<String, Map<String, dynamic>> g = {};
+                for (var it in list) {
+                  final key = "${it.menuItemId}_${it.status}_${it.addedBy}";
+                  if (g.containsKey(key)) {
+                    g[key]!['quantity'] += it.quantity;
+                  } else {
+                    g[key] = {'item': it, 'quantity': it.quantity};
+                  }
+                }
+                
+                final result = g.values.toList();
+                // Сортировка: сначала текущий пользователь
+                result.sort((a, b) {
+                  final aIsMe = (a['item'] as CartItem).addedBy == cart.deviceId;
+                  final bIsMe = (b['item'] as CartItem).addedBy == cart.deviceId;
+                  if (aIsMe && !bIsMe) return -1;
+                  if (!aIsMe && bIsMe) return 1;
+                  return 0;
+                });
+                return result;
+              }
+
+              final groupedOrdering = group(orderingItems);
+              final groupedConfirmed = group(confirmedItems);
+
+              return ListView(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                children: [
+                  if (groupedOrdering.isNotEmpty) ...[
+                    _buildSectionHeader("НОВЫЕ ПОЗИЦИИ"),
+                    ...groupedOrdering.map((g) => _buildCartCard(g['item'], g['quantity'], cart)),
+                  ],
+                  if (groupedConfirmed.isNotEmpty) ...[
+                    const SizedBox(height: 20),
+                    _buildSectionHeader("УЖЕ ЗАКАЗАНО"),
+                    ...groupedConfirmed.map((g) => _buildCartCard(g['item'], g['quantity'], cart)),
+                  ],
+                ],
+              );
+            }(),
           ),
           _buildTotalPanel(totalForTable, displayTotal, cart),
         ],
@@ -1823,6 +2082,9 @@ class _SharedCartScreenState extends State<SharedCartScreen> {
   Widget _buildTotalPanel(double totalForTable, double displayTotal, CartProvider cart) {
     bool hasUnconfirmedItems = cart.items.any((item) => item.status == 'ordering');
     bool isConfirmed = !hasUnconfirmedItems && cart.items.isNotEmpty;
+    
+    final readyCount = cart.participants.where((p) => p['is_ready'] == true).length;
+    final totalParticipants = cart.participants.length;
  
     return Container(
       padding: const EdgeInsets.all(24),
@@ -1841,7 +2103,7 @@ class _SharedCartScreenState extends State<SharedCartScreen> {
                   children: [
                     Text(
                       _splitMode == 'mine' ? "К ОПЛАТЕ (ВАША ДОЛЯ)" : 
-                      _splitMode == 'equal' ? "К ОПЛАТЕ (ПОРАВНУ)" : "ОБЩИЙ ИТОГ",
+                      _splitMode == 'equal' ? "К ОПЛАТЕ (ПОРОВНУ)" : "ОБЩИЙ ИТОГ",
                       style: GoogleFonts.forum(fontSize: 14, letterSpacing: 1),
                     ),
                     if (_splitMode != 'all')
@@ -1853,16 +2115,18 @@ class _SharedCartScreenState extends State<SharedCartScreen> {
             ),
             const SizedBox(height: 16),
             ElevatedButton(
-              onPressed: hasUnconfirmedItems ? () => cart.confirmOrder() : null,
+              onPressed: (hasUnconfirmedItems) ? () => cart.toggleReady() : null,
               style: ElevatedButton.styleFrom(
-                backgroundColor: isConfirmed ? const Color(0xFFE09E00) : Colors.black,
+                backgroundColor: cart.isReady ? const Color(0xFFD4A043) : Colors.black,
                 disabledBackgroundColor: isConfirmed ? const Color(0xFFE09E00).withOpacity(0.7) : Colors.grey.shade300,
                 minimumSize: const Size(double.infinity, 60),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               ),
               child: Text(
-                isConfirmed ? "ЗАКАЗ ПОДТВЕРЖДЕН" : 
-                hasUnconfirmedItems ? "ДОЗАКАЗАТЬ (${cart.items.where((i) => i.status == 'ordering').length})" : "ОФОРМИТЬ ЗАКАЗ"
+                isConfirmed ? "ЗАКАЗ ПРИНЯТ" : 
+                (cart.isReady && totalParticipants > 1) ? "ОЖИДАНИЕ ОСТАЛЬНЫХ ($readyCount/$totalParticipants)" :
+                hasUnconfirmedItems ? "ЗАКАЗАТЬ" : "КОРЗИНА ПУСТА",
+                style: GoogleFonts.outfit(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 16),
               ),
             ),
           ],
@@ -1912,6 +2176,106 @@ class _SharedCartScreenState extends State<SharedCartScreen> {
       ),
     );
   }
+
+  Widget _buildSectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 15, bottom: 10),
+      child: Text(
+        title,
+        style: GoogleFonts.outfit(
+          fontSize: 11,
+          fontWeight: FontWeight.w900,
+          color: Colors.black45,
+          letterSpacing: 1.2,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCartCard(CartItem cartItem, int displayQuantity, CartProvider cart) {
+    final foundItems = menuItems.where((m) => m.id == cartItem.menuItemId);
+    if (foundItems.isEmpty) return const SizedBox.shrink();
+    
+    final menuItem = foundItems.first;
+    final isMine = cartItem.addedBy == cart.deviceId;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: isMine ? Border.all(color: const Color(0xFFFFD166), width: 1) : null,
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10)],
+      ),
+      child: Row(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: _buildSmartImage(
+              menuItem.images.isNotEmpty ? menuItem.images.first : '', 
+              width: 55, height: 55
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(menuItem.title, style: GoogleFonts.outfit(fontWeight: FontWeight.w600, color: Colors.black, fontSize: 14)),
+                Consumer<CartProvider>(
+                  builder: (context, cart, child) {
+                    final participant = cart.participants.firstWhere(
+                      (p) => p['device_id'] == cartItem.addedBy,
+                      orElse: () => {},
+                    );
+                    final isReady = isMine ? cart.isReadyLocally : (participant['is_ready'] == true);
+                    return Row(
+                      children: [
+                        Text(
+                          isMine ? "Вы (${cart.userName ?? 'Гость'})" : (participant['user_name'] ?? "Гость"),
+                          style: GoogleFonts.outfit(
+                            color: isMine ? const Color(0xFFE09E00) : Colors.black54, 
+                            fontSize: 10,
+                            fontWeight: isMine ? FontWeight.bold : FontWeight.w500,
+                          ),
+                        ),
+                        if (isReady) ...[
+                          const SizedBox(width: 4),
+                          const Icon(Icons.check_circle, color: Colors.green, size: 10),
+                        ],
+                      ],
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text("x$displayQuantity", style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 15)),
+              Text(
+                "${(menuItem.price * displayQuantity).toInt()} сом", 
+                style: GoogleFonts.outfit(color: const Color(0xFFD4A043), fontSize: 11, fontWeight: FontWeight.bold)
+              ),
+              if (cartItem.status == 'confirmed')
+                Text("Ожидает подтверждения", style: GoogleFonts.outfit(color: Colors.orange, fontSize: 9, fontWeight: FontWeight.bold)),
+              if (cartItem.status == 'processing')
+                Text("Принято, готовим", style: GoogleFonts.outfit(color: Colors.blue, fontSize: 9, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          if (cartItem.status == 'ordering')
+            IconButton(
+              icon: const Icon(Icons.close, size: 18, color: Colors.redAccent),
+              onPressed: () => cart.removeFromCart(cartItem.id),
+            )
+          else
+            const SizedBox(width: 40),
+        ],
+      ),
+    );
+  }
 }
 
 class TableMapItem {
@@ -1944,36 +2308,119 @@ class TableBookingScreen extends StatefulWidget {
 }
 
 class _TableBookingScreenState extends State<TableBookingScreen> {
-  int _selectedFloor = 1;
-  
-  final List<TableMapItem> _tables = [
-    // Floor 1
-    TableMapItem(id: '1', x: 40, y: 80, floor: 1, label: '1'),
-    TableMapItem(id: '2', x: 120, y: 80, floor: 1, label: '2'),
-    TableMapItem(id: '3', x: 200, y: 80, floor: 1, label: '3'),
-    TableMapItem(id: '4', x: 40, y: 160, floor: 1, label: '4'),
-    TableMapItem(id: '5', x: 120, y: 160, floor: 1, label: '5'),
-    TableMapItem(id: '6', x: 200, y: 160, floor: 1, label: '6'),
-    // Cabins Floor 1
-    TableMapItem(id: 'C1', x: 20, y: 320, floor: 1, width: 130, height: 90, isCabin: true, label: 'Кабинка 1'),
-    TableMapItem(id: 'C2', x: 170, y: 320, floor: 1, width: 130, height: 90, isCabin: true, label: 'Кабинка 2'),
-    
-    // Floor 2
-    TableMapItem(id: 'V1', x: 20, y: 40, floor: 2, width: 130, height: 130, isCabin: true, label: 'VIP 1'),
-    TableMapItem(id: 'V2', x: 170, y: 40, floor: 2, width: 130, height: 130, isCabin: true, label: 'VIP 2'),
-    TableMapItem(id: '10', x: 40, y: 220, floor: 2, label: '10'),
-    TableMapItem(id: '11', x: 120, y: 220, floor: 2, label: '11'),
-    TableMapItem(id: '12', x: 200, y: 220, floor: 2, label: '12'),
-    TableMapItem(id: 'C3', x: 20, y: 400, floor: 2, width: 280, height: 110, isCabin: true, label: 'Семейная зона'),
-  ];
+  List<Map<String, dynamic>> _floors = [];
+  List<Map<String, dynamic>> _tables = [];
+  List<Map<String, dynamic>> _activeBookings = [];
+  String? _selectedFloorId;
+  String? _tempSelectedTableId;
+  bool _loading = true;
+  final TransformationController _transformCtrl = TransformationController();
+  RealtimeChannel? _tablesRealtime;
 
-  void _showBookingSheet(TableMapItem table) {
+  void initState() {
+    super.initState();
+    _load();
+    _initRealtime();
+  }
+
+  void _initRealtime() {
+    _tablesRealtime = Supabase.instance.client
+        .channel('public:restaurant_tables')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'restaurant_tables',
+          callback: (payload) {
+            if (mounted) {
+              setState(() {
+                final newRecord = payload.newRecord;
+                final idx = _tables.indexWhere((t) => t['id'] == newRecord['id']);
+                if (idx != -1) {
+                  _tables[idx] = Map<String, dynamic>.from(newRecord);
+                } else {
+                  _load(); // Если не нашли в списке, перезагружаем всё
+                }
+              });
+            }
+          },
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'restaurant_tables',
+          callback: (payload) {
+             if (payload.eventType != PostgresChangeEvent.update) {
+               _load();
+             }
+          },
+        )
+        .subscribe();
+  }
+
+  @override
+  void dispose() {
+    _tablesRealtime?.unsubscribe();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    try {
+      final fRes = await Supabase.instance.client.from('floors').select().order('sort_order');
+      final tRes = await Supabase.instance.client.from('restaurant_tables').select().eq('is_active', true);
+      final bRes = await Supabase.instance.client.from('bookings').select().inFilter('status', ['confirmed', 'accepted']);
+      
+      if (mounted) {
+        setState(() {
+          _floors = List<Map<String, dynamic>>.from(fRes);
+          _tables = List<Map<String, dynamic>>.from(tRes);
+          _activeBookings = List<Map<String, dynamic>>.from(bRes);
+          if (_floors.isNotEmpty && _selectedFloorId == null) {
+            _selectedFloorId = _floors.first['id'];
+          }
+          _loading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _selectAndShowBooking(Map<String, dynamic> table) {
+    if (table['is_booked'] == true) {
+      // Ищем время когда освободится
+      final booking = _activeBookings.firstWhere(
+        (b) => b['table_id'].toString() == table['id'].toString(),
+        orElse: () => {},
+      );
+      final endTime = booking['end_time'];
+      final message = endTime != null 
+          ? 'Этот стол занят до $endTime' 
+          : 'Этот стол сейчас занят';
+          
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message, style: GoogleFonts.outfit(fontWeight: FontWeight.w600)),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(20),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+      return;
+    }
+
+    setState(() => _tempSelectedTableId = table['id']);
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) => _BookingSheet(table: table),
-    );
+    ).then((_) {
+      // Обновляем данные с сервера, чтобы увидеть красный стол
+      _load();
+      // Сбрасываем временный выбор
+      setState(() => _tempSelectedTableId = null);
+    });
   }
 
   @override
@@ -2015,80 +2462,59 @@ class _TableBookingScreenState extends State<TableBookingScreen> {
                     ],
                   ),
                 ),
-                Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 40),
-                  padding: const EdgeInsets.all(4),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(20),
+                if (_floors.length > 1)
+                  Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 40),
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      children: _floors.map((f) => _FloorBtn(
+                        label: (f['name'] as String).toUpperCase(),
+                        isSel: _selectedFloorId == f['id'],
+                        onTap: () => setState(() => _selectedFloorId = f['id']),
+                      )).toList(),
+                    ),
                   ),
-                  child: Row(
-                    children: [
-                      _FloorBtn(label: '1 ЭТАЖ', isSel: _selectedFloor == 1, onTap: () => setState(() => _selectedFloor = 1)),
-                      _FloorBtn(label: '2 ЭТАЖ', isSel: _selectedFloor == 2, onTap: () => setState(() => _selectedFloor = 2)),
-                    ],
-                  ),
-                ),
                 const SizedBox(height: 30),
-                Expanded(
+                Center(
                   child: Container(
-                    margin: const EdgeInsets.all(24),
+                    width: 360,
+                    height: 600,
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(40),
                       boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 40, offset: const Offset(0, 20))],
                     ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(40),
-                      child: Stack(
-                        children: [
-                          Positioned.fill(
-                            child: CustomPaint(painter: _GridPainter()),
-                          ),
-                          ..._tables.where((t) => t.floor == _selectedFloor).map((table) => Positioned(
-                            left: table.x,
-                            top: table.y,
-                            child: GestureDetector(
-                              onTap: () => _showBookingSheet(table),
-                              child: Container(
-                                width: table.width,
-                                height: table.height,
-                                decoration: BoxDecoration(
-                                  color: table.isCabin ? Colors.white : const Color(0xFF151515),
-                                  borderRadius: BorderRadius.circular(table.isCabin ? 16 : 50),
-                                  border: table.isCabin ? Border.all(color: Colors.black12, width: 2) : null,
-                                  boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10, offset: const Offset(0, 5))],
-                                ),
-                                child: Center(
-                                  child: Text(
-                                    table.label,
-                                    textAlign: TextAlign.center,
-                                    style: GoogleFonts.outfit(
-                                      color: table.isCabin ? Colors.black : Colors.white,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: table.isCabin ? 12 : 16,
-                                    ),
-                                  ),
-                                ),
+                    child: _loading 
+                      ? const Center(child: CircularProgressIndicator(color: Colors.black12))
+                      : _selectedFloorId == null
+                        ? Center(child: Text('Схема залов не настроена', style: GoogleFonts.outfit(color: Colors.black26)))
+                        : ClipRRect(
+                            borderRadius: BorderRadius.circular(40),
+                            child: SingleChildScrollView(
+                              child: Column(
+                                children: [
+                                  _buildHallScheme(),
+                                  _buildExtraTablesList(),
+                                  const SizedBox(height: 100), 
+                                ],
                               ),
                             ),
-                          )),
-                          Positioned(
-                            bottom: 25,
-                            left: 0,
-                            right: 0,
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                _LegendItem(color: const Color(0xFF151515), label: 'Стол'),
-                                const SizedBox(width: 30),
-                                _LegendItem(color: Colors.white, label: 'Кабинка', border: true),
-                              ],
-                            ),
                           ),
-                        ],
-                      ),
-                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 20),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _LegendItem(color: const Color(0xFF4CAF50), label: 'Свободно'),
+                      const SizedBox(width: 20),
+                      _LegendItem(color: const Color(0xFFF44336), label: 'Занято'),
+                    ],
                   ),
                 ),
                 Padding(
@@ -2103,6 +2529,160 @@ class _TableBookingScreenState extends State<TableBookingScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildHallScheme() {
+    if (_floors.isEmpty || _selectedFloorId == null) return const SizedBox.shrink();
+    
+    final floor = _floors.firstWhere((f) => f['id'] == _selectedFloorId);
+    final floorTables = _tables.where((t) => t['floor_id'] == _selectedFloorId).toList();
+    // Берем только те, у которых есть координаты
+    final placedTables = floorTables.where((t) => (t['pos_x'] as num) > 0 || (t['pos_y'] as num) > 0).toList();
+    final planUrl = floor['plan_url'];
+
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        // Фон: Схема или сетка
+        if (planUrl != null && planUrl.toString().isNotEmpty)
+          Image.network(
+            planUrl,
+            fit: BoxFit.fill,
+            alignment: Alignment.center,
+            loadingBuilder: (ctx, child, progress) {
+              if (progress == null) return child;
+              return Container(width: 1000, height: 800, color: Colors.grey.shade50);
+            },
+            errorBuilder: (_, __, ___) => _buildGridFallback(),
+          )
+        else
+          _buildGridFallback(),
+        // Размещенные столы
+        ...placedTables.map((table) {
+          final double w = (table['width'] ?? 80).toDouble();
+          final double h = (table['height'] ?? 80).toDouble();
+          final double rotation = (table['rotation'] ?? 0).toDouble();
+          double x = (table['pos_x'] as num).toDouble();
+          double y = (table['pos_y'] as num).toDouble();
+
+          // Ретро-совместимость с относительными координатами
+          if (x < 2.0 && y < 2.0) { x *= 1000; y *= 1000; }
+
+          return Positioned(
+            left: x - (w / 2),
+            top: y - (h / 2),
+            child: Transform.rotate(
+              angle: rotation * (3.1415926535 / 180),
+              child: GestureDetector(
+                onTap: () => _selectAndShowBooking(table),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  width: w, height: h,
+                  decoration: BoxDecoration(
+                    color: (table['is_booked'] == true ? const Color(0xFFF44336) : const Color(0xFF4CAF50)).withOpacity(0.6),
+                    borderRadius: BorderRadius.circular(w == h ? 50 : 12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: (table['is_booked'] == true ? const Color(0xFFF44336) : const Color(0xFF4CAF50)).withOpacity(0.4),
+                        blurRadius: 15,
+                        spreadRadius: 2,
+                      ),
+                    ],
+                  ),
+                  child: Center(
+                    child: w < 40 
+                      ? Icon(
+                          table['is_booked'] == true ? Icons.person_off_rounded : Icons.chair_alt_rounded,
+                          color: Colors.white.withOpacity(0.8),
+                          size: w * 0.5,
+                        )
+                      : Column(
+                          mainAxisSize: MainAxisSize.min,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              table['is_booked'] == true ? Icons.person_off_rounded : Icons.chair_alt_rounded,
+                              color: Colors.white.withOpacity(0.8),
+                              size: w * 0.35,
+                            ),
+                            if (w >= 45) 
+                              Flexible(
+                                child: Text(
+                                  table['label'] ?? '',
+                                  style: GoogleFonts.outfit(
+                                    color: Colors.white.withOpacity(0.9), 
+                                    fontWeight: FontWeight.bold, 
+                                    fontSize: (w * 0.15).clamp(8, 12),
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                          ],
+                        ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        }),
+      ],
+    );
+  }
+
+  Widget _buildExtraTablesList() {
+    final floorTables = _tables.where((t) => t['floor_id'] == _selectedFloorId).toList();
+    // Те, у кого нет координат
+    final extraTables = floorTables.where((t) => (t['pos_x'] as num) <= 0 && (t['pos_y'] as num) <= 0).toList();
+    
+    if (extraTables.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Divider(color: Colors.black12),
+          const SizedBox(height: 10),
+          Text('ДРУГИЕ СТОЛЫ', style: GoogleFonts.forum(fontSize: 14, letterSpacing: 2, color: Colors.black38)),
+          const SizedBox(height: 15),
+          Wrap(
+            spacing: 15,
+            runSpacing: 15,
+            children: extraTables.map((table) => GestureDetector(
+              onTap: () => _selectAndShowBooking(table),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                width: 70, height: 70,
+                decoration: BoxDecoration(
+                  color: table['is_booked'] == true ? const Color(0xFFF44336) : const Color(0xFF4CAF50),
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    if (_tempSelectedTableId == table['id'])
+                      BoxShadow(color: const Color(0xFFD4A043).withOpacity(0.4), blurRadius: 10)
+                    else
+                      BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 5),
+                  ],
+                ),
+                child: Center(
+                  child: Text(
+                    table['label'] ?? '',
+                    style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
+                ),
+              ),
+            )).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGridFallback() {
+    return Container(
+      width: 1000, height: 1000,
+      color: Colors.grey.shade50,
+      child: CustomPaint(painter: _GridPainter()),
     );
   }
 }
@@ -2181,7 +2761,7 @@ class _LegendItem extends StatelessWidget {
 }
 
 class _BookingSheet extends StatefulWidget {
-  final TableMapItem table;
+  final Map<String, dynamic> table;
   const _BookingSheet({required this.table});
   @override
   State<_BookingSheet> createState() => _BookingSheetState();
@@ -2189,14 +2769,24 @@ class _BookingSheet extends StatefulWidget {
 
 class _BookingSheetState extends State<_BookingSheet> {
   int guests = 2;
-  String time = '19:00';
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
+  final TextEditingController _timeController = TextEditingController(text: '19:00');
+  final TextEditingController _endTimeController = TextEditingController(text: '21:00');
+  bool _isSubmitting = false;
+  String? _localError;
+
+  @override
+  void initState() {
+    super.initState();
+  }
 
   @override
   void dispose() {
     _nameController.dispose();
     _phoneController.dispose();
+    _timeController.dispose();
+    _endTimeController.dispose();
     super.dispose();
   }
 
@@ -2217,7 +2807,7 @@ class _BookingSheetState extends State<_BookingSheet> {
               child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(2))),
             ),
             const SizedBox(height: 30),
-            Text(widget.table.isCabin ? 'КАБИНКА' : 'СТОЛ №${widget.table.label}', style: GoogleFonts.forum(fontSize: 16, letterSpacing: 2, color: Colors.grey)),
+            Text('${widget.table['label']}'.toUpperCase(), style: GoogleFonts.forum(fontSize: 16, letterSpacing: 2, color: Colors.grey)),
             Text('ОФОРМИТЬ БРОНЬ', style: GoogleFonts.outfit(fontSize: 28, fontWeight: FontWeight.w900)),
             const SizedBox(height: 30),
             
@@ -2241,9 +2831,15 @@ class _BookingSheetState extends State<_BookingSheet> {
             TextField(
               controller: _phoneController,
               keyboardType: TextInputType.phone,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(9),
+              ],
               style: GoogleFonts.outfit(fontWeight: FontWeight.bold),
               decoration: InputDecoration(
-                hintText: '+996 --- -- -- --',
+                hintText: '700 123 456',
+                prefixText: '+996 ',
+                prefixStyle: GoogleFonts.outfit(color: Colors.black, fontWeight: FontWeight.bold),
                 filled: true,
                 fillColor: Colors.grey.shade50,
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
@@ -2257,48 +2853,149 @@ class _BookingSheetState extends State<_BookingSheet> {
             Row(
               children: [
                 _CountBtn(icon: Icons.remove, onTap: () => setState(() => guests = guests > 1 ? guests - 1 : 1)),
-                Padding(padding: const EdgeInsets.symmetric(horizontal: 24), child: Text('$guests', style: GoogleFonts.outfit(fontSize: 24, fontWeight: FontWeight.bold))),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24), 
+                  child: Text(
+                    '$guests', 
+                    style: GoogleFonts.outfit(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.black)
+                  )
+                ),
                 _CountBtn(icon: Icons.add, onTap: () => setState(() => guests++)),
               ],
             ),
             const SizedBox(height: 30),
             Text('ВРЕМЯ ПРИБЫТИЯ', style: GoogleFonts.outfit(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black54)),
             const SizedBox(height: 16),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: ['18:00', '19:00', '20:00', '21:00', '22:00'].map((t) => GestureDetector(
-                  onTap: () => setState(() => time = t),
-                  child: Container(
-                    margin: const EdgeInsets.only(right: 12),
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                    decoration: BoxDecoration(color: time == t ? Colors.black : Colors.grey.shade50, borderRadius: BorderRadius.circular(16)),
-                    child: Text(t, style: GoogleFonts.outfit(color: time == t ? Colors.white : Colors.black, fontWeight: FontWeight.bold)),
-                  ),
-                )).toList(),
+            TextField(
+              controller: _timeController,
+              style: GoogleFonts.outfit(fontWeight: FontWeight.bold),
+              decoration: InputDecoration(
+                hintText: '19:00',
+                filled: true,
+                fillColor: Colors.grey.shade50,
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.access_time_rounded, color: Colors.black),
+                  onPressed: () async {
+                    final picked = await showTimePicker(
+                      context: context,
+                      initialTime: TimeOfDay.now(),
+                      builder: (context, child) => Theme(
+                        data: Theme.of(context).copyWith(
+                          colorScheme: const ColorScheme.light(primary: Colors.black),
+                        ),
+                        child: child!,
+                      ),
+                    );
+                    if (picked != null) {
+                      setState(() => _timeController.text = picked.format(context));
+                    }
+                  },
+                ),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
               ),
             ),
+            const SizedBox(height: 20),
+            Text('ВРЕМЯ УХОДА', style: GoogleFonts.outfit(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black54)),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _endTimeController,
+              style: GoogleFonts.outfit(fontWeight: FontWeight.bold),
+              decoration: InputDecoration(
+                hintText: '21:00',
+                filled: true,
+                fillColor: Colors.grey.shade50,
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.access_time_rounded, color: Colors.black),
+                  onPressed: () async {
+                    final picked = await showTimePicker(
+                      context: context,
+                      initialTime: const TimeOfDay(hour: 21, minute: 0),
+                      builder: (context, child) => Theme(
+                        data: Theme.of(context).copyWith(
+                          colorScheme: const ColorScheme.light(primary: Colors.black),
+                        ),
+                        child: child!,
+                      ),
+                    );
+                    if (picked != null) {
+                      setState(() => _endTimeController.text = picked.format(context));
+                    }
+                  },
+                ),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+              ),
+            ),
+            const SizedBox(height: 12),
+            if (_localError != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: Text(_localError!, style: GoogleFonts.outfit(color: Colors.redAccent, fontWeight: FontWeight.w600, fontSize: 13)),
+              ),
             const SizedBox(height: 40),
             ElevatedButton(
-              onPressed: () {
-                if (_nameController.text.isEmpty || _phoneController.text.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Пожалуйста, заполните Имя и Номер телефона'),
-                      backgroundColor: Colors.redAccent,
-                      behavior: SnackBarBehavior.floating,
-                    ),
-                  );
+              onPressed: _isSubmitting ? null : () async {
+                final phone = _phoneController.text.trim();
+                if (_nameController.text.isEmpty || phone.isEmpty) {
+                  _showError('Пожалуйста, заполните Имя и Номер телефона');
                   return;
                 }
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Бронь для ${_nameController.text} подтверждена'), 
-                    backgroundColor: Colors.black,
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
+                if (phone.length != 9) {
+                  _showError('Введите 9 цифр номера после +996');
+                  return;
+                }
+
+                setState(() => _isSubmitting = true);
+
+                try {
+                  final fullPhone = '+996$phone';
+                  
+                  // 1. Сохраняем бронь в базу
+                  await Supabase.instance.client.from('bookings').insert({
+                    'table_id': widget.table['id'],
+                    'customer_name': _nameController.text.trim(),
+                    'customer_phone': fullPhone,
+                    'guests_count': guests,
+                    'booking_time': _timeController.text.trim(),
+                    'end_time': _endTimeController.text.trim(),
+                    'status': 'confirmed'
+                  });
+
+                  // 2. Помечаем стол как забронированный
+                  await Supabase.instance.client
+                      .from('restaurant_tables')
+                      .update({'is_booked': true})
+                      .eq('id', widget.table['id']);
+
+                  // 3. Уведомляем администратора в Telegram
+                  final msg = '📅 *БРОНЬ СТОЛА!*\n\n'
+                      '🪑 Стол: *№${widget.table['label']}*\n'
+                      '👤 Гость: *${_nameController.text}*\n'
+                      '📞 Телефон: * $fullPhone *\n'
+                      '👥 Гостей: * $guests *\n'
+                      '⏰ Время: * ${_timeController.text} *';
+
+                  if (SettingsService.telegramNotify) {
+                    await TelegramService.sendMessage(msg);
+                  }
+
+                  if (mounted) {
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Бронь для ${_nameController.text} подтверждена'), 
+                        backgroundColor: Colors.black,
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  debugPrint('Booking error: $e');
+                  _showError('Ошибка бронирования. Попробуйте позже.');
+                } finally {
+                  if (mounted) setState(() => _isSubmitting = false);
+                }
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.black, 
@@ -2306,12 +3003,22 @@ class _BookingSheetState extends State<_BookingSheet> {
                 minimumSize: const Size(double.infinity, 70), 
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
               ),
-              child: Text('ПОДТВЕРДИТЬ', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, letterSpacing: 2)),
+              child: _isSubmitting 
+                ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                : Text('ПОДТВЕРДИТЬ', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, letterSpacing: 2)),
             ),
           ],
         ),
       ),
     );
+  }
+
+  void _showError(String msg) {
+    setState(() => _localError = msg);
+    // Автоматически скрываем ошибку через 3 секунды
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _localError = null);
+    });
   }
 }
 
@@ -2329,8 +3036,100 @@ class _CountBtn extends StatelessWidget {
 }
 
 Widget _buildSmartImage(String url, {double? width, double? height}) {
+  final placeholder = Container(
+    width: width,
+    height: height,
+    decoration: BoxDecoration(
+      color: Colors.grey.shade50,
+    ),
+    child: FittedBox(
+      fit: BoxFit.scaleDown,
+      child: Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.restaurant_rounded, 
+              color: Colors.grey.shade300, 
+              size: (width != null && width < 100) ? 24 : 48
+            ),
+            if (width == null || width > 120) ...[
+              const SizedBox(height: 12),
+              Text(
+                'НЕТ ИЗОБРАЖЕНИЯ',
+                style: GoogleFonts.outfit(
+                  color: Colors.grey.shade400,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 1.2,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    ),
+  );
+
   if (url.startsWith('assets/')) {
-    return Image.asset(url, width: width, height: height, fit: BoxFit.cover);
+    // Если путь уже содержит assets/, Flutter Image.asset может дублировать его в вебе
+    // Очищаем путь для корректной загрузки
+    final cleanPath = url.replaceFirst('assets/assets/', 'assets/');
+    return Image.asset(
+      cleanPath, 
+      width: width, 
+      height: height, 
+      fit: BoxFit.cover,
+      errorBuilder: (context, error, stackTrace) => placeholder,
+    );
   }
-  return Image.network(url, width: width, height: height, fit: BoxFit.cover, errorBuilder: (_, __, ___) => Container(width: width, height: height, color: Colors.white12));
+  
+  return Image.network(
+    url, 
+    width: width, 
+    height: height, 
+    fit: BoxFit.cover, 
+    loadingBuilder: (context, child, loadingProgress) {
+      if (loadingProgress == null) return child;
+      return Container(
+        width: width,
+        height: height,
+        color: Colors.grey.shade50,
+        child: const Center(
+          child: SizedBox(
+            width: 24,
+            height: 24,
+            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black12),
+          ),
+        ),
+      );
+    },
+    errorBuilder: (context, error, stackTrace) => placeholder,
+  );
 }
+
+  Widget _buildBannerPlaceholder(Map<String, String> banner) {
+    final previewUrl = banner['preview_url'] ?? banner['url'];
+    // Если нет даже ссылки, показываем пустой светлый блок
+    if (previewUrl == null) return Container(color: Colors.grey.shade200);
+    
+    return Container(
+      color: Colors.grey.shade200,
+      child: Image.network(
+        previewUrl,
+        fit: BoxFit.cover,
+        // Добавляем прозрачность при загрузке для мягкости
+        frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+          if (wasSynchronouslyLoaded) return child;
+          return AnimatedOpacity(
+            opacity: frame == null ? 0 : 1,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+            child: child,
+          );
+        },
+        errorBuilder: (context, error, stackTrace) => Container(color: Colors.grey.shade200),
+      ),
+    );
+  }

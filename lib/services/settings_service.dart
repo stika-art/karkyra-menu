@@ -25,6 +25,7 @@ class SettingsService {
   static String get adminPassword => _cache['admin_password'] ?? 'karkyra2025';
   static String get telegramToken => _cache['telegram_token'] ?? '';
   static String get telegramChatId => _cache['telegram_chat_id'] ?? '';
+  static bool get telegramNotify => _cache['telegram_notify'] != 'false';
   static bool get isLoaded => _loaded;
 
   static Future<void> update(String key, String value) async {

@@ -8,16 +8,13 @@ import '../data/mock_data.dart' as mock;
 class MenuDataService {
   static List<MenuItem> _cachedItems = [];
   static List<Category> _cachedCategories = [];
+  static List<Map<String, String>> _cachedBanners = [];
   static bool _loaded = false;
 
-  static List<MenuItem> get items =>
-      _loaded && _cachedItems.isNotEmpty ? _cachedItems : mock.menuItems;
-
-  static List<Category> get categories =>
-      _loaded && _cachedCategories.isNotEmpty ? _cachedCategories : mock.categories;
-
-  static String? _cachedBannerUrl;
-  static String? get bannerUrl => _loaded ? _cachedBannerUrl : 'assets/videos/test.mp4';
+  static List<MenuItem> get items => _cachedItems;
+  static List<Category> get categories => _cachedCategories;
+  static List<Map<String, String>> get banners => 
+      _cachedBanners.isNotEmpty ? _cachedBanners : [{'url': 'assets/videos/test.mp4', 'type': 'video'}];
 
   static Future<void> load() async {
     try {
@@ -84,9 +81,14 @@ class MenuDataService {
         title: d['title'] as String,
         description: d['description'] as String? ?? '',
         price: (d['price'] as num).toDouble(),
-        images: d['photo_url'] != null
-            ? [d['photo_url'] as String]
-            : ['assets/images/placeholder.png'],
+        images: () {
+          final imgs = [
+            if (d['photo_url'] != null) d['photo_url'] as String,
+            if ((d as Map).containsKey('photo_url2') && d['photo_url2'] != null) d['photo_url2'] as String,
+            if ((d as Map).containsKey('photo_url3') && d['photo_url3'] != null) d['photo_url3'] as String,
+          ];
+          return imgs.isEmpty ? ['assets/images/placeholder.png'] : imgs;
+        }(),
         weight: d['weight'] as String?,
         ingredients: names,
         ingredientImages: images,
@@ -103,17 +105,19 @@ class MenuDataService {
       );
       }).toList();
 
-      // Загружаем баннер
+      // Загружаем баннеры
       final bannerRes = await Supabase.instance.client
           .from('banners')
-          .select('url')
+          .select('url, type')
           .eq('is_active', true)
-          .eq('type', 'video')
-          .maybeSingle()
+          .order('created_at', ascending: true)
           .timeout(const Duration(seconds: 5));
       
-      if (bannerRes != null && bannerRes['url'] != null) {
-        _cachedBannerUrl = bannerRes['url'];
+      if (bannerRes != null) {
+        _cachedBanners = (bannerRes as List).map<Map<String, String>>((b) => {
+          'url': (b['url'] ?? '').toString(),
+          'type': (b['type'] ?? 'video').toString(),
+        }).toList();
       }
 
       if (cats.isNotEmpty || items.isNotEmpty) {
@@ -131,6 +135,6 @@ class MenuDataService {
     _loaded = false;
     _cachedItems = [];
     _cachedCategories = [];
-    _cachedBannerUrl = null;
+    _cachedBanners = [];
   }
 }

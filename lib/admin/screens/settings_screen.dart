@@ -18,6 +18,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _showPassword = false;
   bool _showToken = false;
   String? _successMessage;
+  late bool _telegramNotify;
 
   @override
   void initState() {
@@ -25,6 +26,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _passwordCtrl = TextEditingController(text: SettingsService.adminPassword);
     _tokenCtrl = TextEditingController(text: SettingsService.telegramToken);
     _chatIdCtrl = TextEditingController(text: SettingsService.telegramChatId);
+    _telegramNotify = SettingsService.telegramNotify;
   }
 
   @override
@@ -45,6 +47,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await SettingsService.update('admin_password', _passwordCtrl.text.trim());
       await SettingsService.update('telegram_token', _tokenCtrl.text.trim());
       await SettingsService.update('telegram_chat_id', _chatIdCtrl.text.trim());
+      await SettingsService.update('telegram_notify', _telegramNotify.toString());
       setState(() {
         _saving = false;
         _successMessage = 'Настройки сохранены!';
@@ -173,7 +176,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       onPressed: () => setState(() => _showToken = !_showToken),
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 16),
+                  _buildToggle(
+                    value: _telegramNotify,
+                    onChanged: (v) => setState(() => _telegramNotify = v),
+                    label: 'Включить уведомления в Telegram',
+                    icon: Icons.notifications_active_outlined,
+                  ),
+                  const SizedBox(height: 24),
                   _buildField(
                     controller: _chatIdCtrl,
                     label: 'Chat ID (ваш Telegram ID)',
@@ -297,6 +307,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Text('Настройки', style: GoogleFonts.outfit(
             color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold,
           )),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildToggle({required bool value, required ValueChanged<bool> onChanged, required String label, required IconData icon}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFF252525),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: const Color(0xFFD4A043), size: 20),
+          const SizedBox(width: 12),
+          Expanded(child: Text(label, style: GoogleFonts.outfit(color: Colors.white, fontSize: 14))),
+          Switch(
+            value: value,
+            onChanged: onChanged,
+            activeColor: const Color(0xFFD4A043),
+            activeTrackColor: const Color(0xFFD4A043).withOpacity(0.3),
+          ),
         ],
       ),
     );

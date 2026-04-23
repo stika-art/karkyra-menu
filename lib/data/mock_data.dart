@@ -2,7 +2,7 @@ import '../models/menu_item.dart';
 import '../models/category.dart';
 
 final List<Category> categories = [
-  Category(id: '0', title: 'Все', emoji: '🍽️'),
+  Category(id: '0', title: 'Все блюда', emoji: '🍽️'),
   Category(id: '1', title: 'Первые блюда', emoji: '🥣'),
   Category(id: '2', title: 'Вторые блюда', emoji: '🍛'),
   Category(id: '3', title: 'Завтраки', emoji: '🍳'),
@@ -56,7 +56,8 @@ final List<MenuItem> menuItems = [
     proteins: 55,
     fats: 60,
     carbs: 2,
-    isHit: true,
+    isHit: false,
+    isTop: true,
   ),
   MenuItem(
     id: '3',
@@ -79,6 +80,7 @@ final List<MenuItem> menuItems = [
     fats: 25,
     carbs: 70,
     isNew: true,
+    isPromo: true,
   ),
   MenuItem(
     id: '4',

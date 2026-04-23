@@ -379,7 +379,9 @@ class _DishesListScreenState extends State<DishesListScreen> {
     final priceCtrl = TextEditingController(text: dish?['price']?.toString() ?? '');
     final descCtrl = TextEditingController(text: dish?['description'] ?? '');
     final weightCtrl = TextEditingController(text: dish?['weight'] ?? '');
-    final photoCtrl = TextEditingController(text: dish?['photo_url'] ?? '');
+    final photoCtrl1 = TextEditingController(text: dish?['photo_url'] ?? '');
+    final photoCtrl2 = TextEditingController(text: dish?['photo_url2'] ?? '');
+    final photoCtrl3 = TextEditingController(text: dish?['photo_url3'] ?? '');
     final calCtrl = TextEditingController(text: dish?['calories']?.toString() ?? '');
     final protCtrl = TextEditingController(text: dish?['proteins']?.toString() ?? '');
     final fatCtrl = TextEditingController(text: dish?['fats']?.toString() ?? '');
@@ -391,7 +393,7 @@ class _DishesListScreenState extends State<DishesListScreen> {
     bool isChef = dish?['is_chef_choice'] ?? false;
     bool isTop = dish?['is_top'] ?? false;
     bool isPromo = dish?['is_promo'] ?? false;
-    bool photoUploading = false;
+    List<bool> photoUploading = [false, false, false];
 
     // Загружаем ингредиенты блюда
     List<String> selectedIngredients = isNew ? [] : await _getDishIngredients(dish!['id']);
@@ -428,69 +430,18 @@ class _DishesListScreenState extends State<DishesListScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         // === ФОТО ===
-                        _sectionLabel('Фото блюда'),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(12),
-                              child: photoCtrl.text.isNotEmpty
-                                  ? Image.network(photoCtrl.text,
-                                      width: 80, height: 80, fit: BoxFit.cover,
-                                      errorBuilder: (_, __, ___) => _photoPh())
-                                  : _photoPh(),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                SizedBox(
-                                  width: double.infinity,
-                                  child: ElevatedButton.icon(
-                                    onPressed: photoUploading ? null : () async {
-                                      final result = await FilePicker.platform.pickFiles(
-                                        type: FileType.image, withData: true);
-                                      if (result == null || result.files.first.bytes == null) return;
-                                      final file = result.files.first;
-                                      setD(() => photoUploading = true);
-                                      try {
-                                        final path = 'dishes/${DateTime.now().millisecondsSinceEpoch}_${file.name}';
-                                        await Supabase.instance.client.storage.from('media').uploadBinary(
-                                          path, file.bytes!,
-                                          fileOptions: FileOptions(contentType: 'image/${file.extension}', upsert: true),
-                                        );
-                                        final url = Supabase.instance.client.storage.from('media').getPublicUrl(path);
-                                        setD(() { photoCtrl.text = url; photoUploading = false; });
-                                      } catch (_) { setD(() => photoUploading = false); }
-                                    },
-                                    icon: photoUploading
-                                        ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
-                                        : const Icon(Icons.upload_rounded, size: 16),
-                                    label: Text(photoUploading ? 'Загрузка...' : 'Загрузить фото',
-                                      style: GoogleFonts.outfit(fontSize: 13, fontWeight: FontWeight.w600)),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: const Color(0xFFD4A043), foregroundColor: Colors.black,
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                      padding: const EdgeInsets.symmetric(vertical: 8),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 6),
-                                TextField(
-                                  controller: photoCtrl,
-                                  onChanged: (_) => setD(() {}),
-                                  style: GoogleFonts.outfit(color: Colors.white, fontSize: 12),
-                                  decoration: InputDecoration(
-                                    hintText: 'или URL фото...',
-                                    hintStyle: GoogleFonts.outfit(color: Colors.white24, fontSize: 12),
-                                    filled: true, fillColor: const Color(0xFF2A2A2A),
-                                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
-                                  ),
-                                ),
-                              ],
-                            )),
-                          ],
+                        _sectionLabel('Фотографии блюда (до 3-х)'),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          height: 100,
+                          child: ListView(
+                            scrollDirection: Axis.horizontal,
+                            children: [
+                              _photoSlot(1, photoCtrl1, photoUploading[0], (v) => setD(() => photoUploading[0] = v), setD),
+                              _photoSlot(2, photoCtrl2, photoUploading[1], (v) => setD(() => photoUploading[1] = v), setD),
+                              _photoSlot(3, photoCtrl3, photoUploading[2], (v) => setD(() => photoUploading[2] = v), setD),
+                            ],
+                          ),
                         ),
                         const SizedBox(height: 16),
 
@@ -500,7 +451,7 @@ class _DishesListScreenState extends State<DishesListScreen> {
                         _field(titleCtrl, 'Название блюда *'),
                         const SizedBox(height: 10),
                         Row(children: [
-                          Expanded(child: _field(priceCtrl, 'Цена ₽ *', type: TextInputType.number)),
+                          Expanded(child: _field(priceCtrl, 'Цена *', type: TextInputType.number)),
                           const SizedBox(width: 10),
                           Expanded(child: _field(weightCtrl, 'Выход (г/мл)')),
                         ]),
@@ -527,7 +478,7 @@ class _DishesListScreenState extends State<DishesListScreen> {
                         const SizedBox(height: 8),
                         Row(
                           children: [
-                            ...List.generate(4, (i) => GestureDetector(
+                            ...List.generate(5, (i) => GestureDetector(
                               onTap: () => setD(() => spice = spice == i + 1 ? 0 : i + 1),
                               child: Padding(
                                 padding: const EdgeInsets.only(right: 8),
@@ -539,7 +490,7 @@ class _DishesListScreenState extends State<DishesListScreen> {
                             )),
                             const SizedBox(width: 8),
                             Text(
-                              spice == 0 ? 'Не острое' : ['Слегка', 'Средне', 'Остро', 'Очень остро'][spice - 1],
+                              spice == 0 ? 'Не острое' : ['Слегка', 'Средне', 'Остро', 'Очень остро', 'Экстремально'][spice - 1],
                               style: GoogleFonts.outfit(color: Colors.white38, fontSize: 13),
                             ),
                           ],
@@ -659,7 +610,9 @@ class _DishesListScreenState extends State<DishesListScreen> {
                           'price': price,
                           'description': descCtrl.text.trim(),
                           'weight': weightCtrl.text.trim().isEmpty ? null : weightCtrl.text.trim(),
-                          'photo_url': photoCtrl.text.trim().isEmpty ? null : photoCtrl.text.trim(),
+                          'photo_url': photoCtrl1.text.trim().isEmpty ? null : photoCtrl1.text.trim(),
+                          'photo_url2': photoCtrl2.text.trim().isEmpty ? null : photoCtrl2.text.trim(),
+                          'photo_url3': photoCtrl3.text.trim().isEmpty ? null : photoCtrl3.text.trim(),
                           'calories': double.tryParse(calCtrl.text),
                           'proteins': double.tryParse(protCtrl.text),
                           'fats': double.tryParse(fatCtrl.text),
@@ -860,6 +813,67 @@ class _DishesListScreenState extends State<DishesListScreen> {
     color: const Color(0xFF2A2A2A),
     child: const Icon(Icons.fastfood_rounded, color: Colors.white24, size: 28),
   );
+
+  Widget _photoSlot(int num, TextEditingController ctrl, bool uploading, ValueSetter<bool> setUploading, StateSetter setD) {
+    return Container(
+      width: 100,
+      margin: const EdgeInsets.only(right: 12),
+      child: Column(
+        children: [
+          Expanded(
+            child: GestureDetector(
+              onTap: uploading ? null : () async {
+                final result = await FilePicker.platform.pickFiles(type: FileType.image, withData: true);
+                if (result == null || result.files.first.bytes == null) return;
+                final file = result.files.first;
+                setUploading(true);
+                try {
+                  final path = 'dishes/${DateTime.now().millisecondsSinceEpoch}_${file.name}';
+                  await Supabase.instance.client.storage.from('media').uploadBinary(
+                    path, file.bytes!,
+                    fileOptions: FileOptions(contentType: 'image/${file.extension}', upsert: true),
+                  );
+                  final url = Supabase.instance.client.storage.from('media').getPublicUrl(path);
+                  setD(() { ctrl.text = url; });
+                  setUploading(false);
+                } catch (_) { setUploading(false); }
+              },
+              child: Stack(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: ctrl.text.isNotEmpty
+                        ? Image.network(ctrl.text, width: 100, height: 100, fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => _photoPh())
+                        : _photoPh(),
+                  ),
+                  if (uploading)
+                    Container(
+                      decoration: BoxDecoration(color: Colors.black45, borderRadius: BorderRadius.circular(12)),
+                      child: const Center(child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFD4A043))),
+                    ),
+                  if (ctrl.text.isNotEmpty && !uploading)
+                    Positioned(
+                      top: 4, right: 4,
+                      child: GestureDetector(
+                        onTap: () => setD(() => ctrl.clear()),
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
+                          child: const Icon(Icons.close_rounded, size: 14, color: Colors.white),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text('Фото $num', style: GoogleFonts.outfit(color: Colors.white38, fontSize: 11)),
+        ],
+      ),
+    );
+  }
 
   Widget _tag(String label, Color color) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),

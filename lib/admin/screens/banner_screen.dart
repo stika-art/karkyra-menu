@@ -84,11 +84,6 @@ class _BannerScreenState extends State<BannerScreen> {
           .from('media')
           .getPublicUrl(storagePath);
 
-      // Деактивируем старый активный баннер
-      await Supabase.instance.client
-          .from('banners')
-          .update({'is_active': false})
-          .eq('is_active', true);
 
       // Сохраняем в таблицу
       await Supabase.instance.client.from('banners').insert({
@@ -225,9 +220,8 @@ class _BannerScreenState extends State<BannerScreen> {
     _load();
   }
 
-  Future<void> _setActive(String id) async {
-    await Supabase.instance.client.from('banners').update({'is_active': false}).neq('id', id);
-    await Supabase.instance.client.from('banners').update({'is_active': true}).eq('id', id);
+  Future<void> _toggleActive(String id, bool currentStatus) async {
+    await Supabase.instance.client.from('banners').update({'is_active': !currentStatus}).eq('id', id);
     _load();
   }
 
@@ -292,27 +286,6 @@ class _BannerScreenState extends State<BannerScreen> {
                             ),
                           ],
                         ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  // По URL
-                  GestureDetector(
-                    onTap: _showAddByUrl,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF252525),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: Colors.white12),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.link_rounded, color: Colors.white38, size: 20),
-                          const SizedBox(width: 6),
-                          Text('По URL', style: GoogleFonts.outfit(
-                            color: Colors.white38, fontWeight: FontWeight.w600)),
-                        ],
                       ),
                     ),
                   ),
@@ -413,12 +386,7 @@ class _BannerScreenState extends State<BannerScreen> {
                                         overflow: TextOverflow.ellipsis,
                                         style: GoogleFonts.outfit(color: Colors.white54, fontSize: 12),
                                       ),
-                                    Text(
-                                      url,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: GoogleFonts.outfit(color: Colors.white24, fontSize: 11),
-                                    ),
+                                      const SizedBox.shrink(),
                                     if (isActive)
                                       Container(
                                         margin: const EdgeInsets.only(top: 4),
@@ -441,17 +409,16 @@ class _BannerScreenState extends State<BannerScreen> {
                               PopupMenuButton<String>(
                                 color: const Color(0xFF2A2A2A),
                                 onSelected: (val) {
-                                  if (val == 'activate') _setActive(b['id']);
+                                  if (val == 'toggle') _toggleActive(b['id'], isActive);
                                   if (val == 'delete') _delete(b['id']);
                                 },
                                 itemBuilder: (_) => [
-                                  if (!isActive)
-                                    PopupMenuItem(value: 'activate',
+                                    PopupMenuItem(value: 'toggle',
                                       child: Row(children: [
-                                        const Icon(Icons.check_circle_rounded,
-                                          color: Color(0xFFD4A043), size: 18),
+                                        Icon(isActive ? Icons.cancel_rounded : Icons.check_circle_rounded,
+                                          color: const Color(0xFFD4A043), size: 18),
                                         const SizedBox(width: 8),
-                                        Text('Активировать',
+                                        Text(isActive ? 'Деактивировать' : 'Активировать',
                                           style: GoogleFonts.outfit(color: Colors.white)),
                                       ])),
                                   PopupMenuItem(value: 'delete',

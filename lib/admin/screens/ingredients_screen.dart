@@ -144,21 +144,6 @@ class _IngredientsScreenState extends State<IngredientsScreen> {
                             ),
                           ),
                         ),
-                        const SizedBox(height: 6),
-                        // По URL
-                        TextField(
-                          controller: photoCtrl,
-                          onChanged: (_) => setD(() {}),
-                          style: GoogleFonts.outfit(color: Colors.white, fontSize: 12),
-                          decoration: InputDecoration(
-                            hintText: 'или вставьте URL...',
-                            hintStyle: GoogleFonts.outfit(color: Colors.white24, fontSize: 12),
-                            filled: true,
-                            fillColor: const Color(0xFF2A2A2A),
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
-                          ),
-                        ),
                       ],
                     ),
                   ),
