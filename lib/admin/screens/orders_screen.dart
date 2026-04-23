@@ -180,20 +180,20 @@ class _OrdersScreenState extends State<OrdersScreen>
 
       final deliveryRes = await Supabase.instance.client
           .from('delivery_orders')
-          .select()
+          .select<List<Map<String, dynamic>>>()
           .order('created_at', ascending: false)
           .timeout(const Duration(seconds: 7));
 
       final callsRes = await Supabase.instance.client
           .from('waiter_calls')
-          .select()
+          .select<List<Map<String, dynamic>>>()
           .eq('status', 'pending')
           .order('created_at', ascending: false)
           .timeout(const Duration(seconds: 7));
 
       final bookingsRes = await Supabase.instance.client
           .from('bookings')
-          .select()
+          .select<List<Map<String, dynamic>>>()
           .order('created_at', ascending: false)
           .timeout(const Duration(seconds: 7));
 

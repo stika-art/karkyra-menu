@@ -182,11 +182,17 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
         // Не ждем await здесь, чтобы запустить все сразу
         controller.initialize().then((_) {
           controller.setLooping(false);
+          // На мобилках автозапуск работает ТОЛЬКО без звука
           controller.setVolume(_isMuted ? 0 : 1.0);
           
-          // Если это текущее видео — запускаем сразу
-          if (i == _currentVideoIndex) {
-            controller.play();
+          if (mounted) {
+            setState(() {}); // Перерисовываем
+            // Если это текущее видео — запускаем
+            if (i == _currentVideoIndex) {
+              Future.delayed(const Duration(milliseconds: 500), () {
+                if (mounted) controller.play();
+              });
+            }
           }
           
           controller.addListener(() {
