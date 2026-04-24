@@ -38,11 +38,15 @@ void main() async {
   runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
     
-    // Инициализация Supabase (без await, чтобы не блокировать UI)
-    Supabase.initialize(
-      url: 'https://vgzdpbwcenckmjtgfvfw.supabase.co',
-      anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZnemRwYndjZW5ja21qdGdmdmZ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2NDkxODAsImV4cCI6MjA5MjIyNTE4MH0.pFmPP9A9Tov4b6URS-LP5b3lYyB0fVXTKDvLY_MR120',
-    ).catchError((e) => debugPrint('Supabase init error: $e'));
+    // Инициализация Supabase (ТЕПЕРЬ С AWAIT, чтобы избежать краша при перезагрузке)
+    try {
+      await Supabase.initialize(
+        url: 'https://vgzdpbwcenckmjtgfvfw.supabase.co',
+        anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZnemRwYndjZW5ja21qdGdmdmZ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2NDkxODAsImV4cCI6MjA5MjIyNTE4MH0.pFmPP9A9Tov4b6URS-LP5b3lYyB0fVXTKDvLY_MR120',
+      );
+    } catch (e) {
+      debugPrint('Supabase init error: $e');
+    }
 
     // Фоновая загрузка данных
     SettingsService.load();

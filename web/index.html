@@ -38,6 +38,17 @@
   <style>
     body { background-color: #141414; margin: 0; padding: 0; overflow: hidden; }
   </style>
+  <script>
+    // Принудительное удаление старых Service Workers, которые могут "травить" кэш
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function(registrations) {
+        for(let registration of registrations) {
+          registration.unregister();
+          console.log('Old ServiceWorker unregistered');
+        }
+      });
+    }
+  </script>
 </head>
 <body>
   <script src="flutter_bootstrap.js" async></script>
