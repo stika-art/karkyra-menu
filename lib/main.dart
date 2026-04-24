@@ -160,6 +160,7 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
       if (mounted) {
         _banners = MenuDataService.banners;
         _initializeVideos();
+        _startCurrentMedia();
         setState(() => _isMenuLoading = false);
         
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -170,8 +171,17 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
   }
 
   void _initializeVideos() {
-    // Запускаем инициализацию всех видео ПАРАЛЛЕЛЬНО
-    for (int i = 0; i < _banners.length; i++) {
+    if (_banners.isEmpty) return;
+    
+    // Инициализируем только текущее и следующее видео для экономии ресурсов
+    final indicesToInit = {
+      _currentVideoIndex,
+      (_currentVideoIndex + 1) % _banners.length
+    };
+
+    for (var i in indicesToInit) {
+      if (_videoControllers.containsKey(i)) continue; // Уже инициализировано
+      
       final banner = _banners[i];
       if (banner['type'] == 'video') {
         final url = banner['url']!;
@@ -179,19 +189,16 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
             ? VideoPlayerController.asset(url)
             : VideoPlayerController.networkUrl(Uri.parse(url));
             
-        // Не ждем await здесь, чтобы запустить все сразу
+        _videoControllers[i] = controller;
+        
         controller.initialize().then((_) {
           controller.setLooping(false);
-          // На мобилках автозапуск работает ТОЛЬКО без звука
           controller.setVolume(_isMuted ? 0 : 1.0);
           
           if (mounted) {
-            setState(() {}); // Перерисовываем
-            // Если это текущее видео — запускаем
+            setState(() {}); 
             if (i == _currentVideoIndex) {
-              Future.delayed(const Duration(milliseconds: 500), () {
-                if (mounted) controller.play();
-              });
+              controller.play();
             }
           }
           
@@ -204,19 +211,8 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
               }
             }
           });
-          
-          if (mounted) setState(() {}); // Перерисовываем, когда видео готово
-        }).catchError((e) {
-          debugPrint('Error initializing video $url: $e');
-        });
-        
-        _videoControllers[i] = controller;
+        }).catchError((e) => debugPrint('Video error: $e'));
       }
-    }
-    
-    if (mounted) {
-      setState(() {});
-      _startCurrentMedia();
     }
   }
 
@@ -252,6 +248,7 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
 
   void _onBannerChanged(int index) {
     if (_banners.isEmpty) return;
+    _imageTimer?.cancel();
     
     // Останавливаем предыдущее видео
     final prevController = _videoControllers[_currentVideoIndex];
@@ -262,6 +259,9 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
     setState(() {
       _currentVideoIndex = index;
     });
+    
+    // Подгружаем видео для текущего и следующего слайда
+    _initializeVideos();
     
     // Запускаем новое медиа (видео или таймер фото)
     _startCurrentMedia();

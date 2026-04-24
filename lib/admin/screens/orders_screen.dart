@@ -217,7 +217,8 @@ class _OrdersScreenState extends State<OrdersScreen>
       debugPrint('ADMIN: Loaded ${_tableOrders.length} table orders, ${_deliveryOrders.length} delivery, ${_waiterCalls.length} calls, ${_bookings.length} bookings');
     } catch (e) {
       debugPrint('ADMIN LOAD ERROR: $e');
-      setState(() => _loading = false);
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
