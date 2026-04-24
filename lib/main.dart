@@ -176,7 +176,7 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
     // Инициализируем только текущее и следующее видео для экономии ресурсов
     final indicesToInit = {
       _currentVideoIndex,
-      (_currentVideoIndex + 1) % _banners.length
+      if (_banners.length > 1) (_currentVideoIndex + 1) % _banners.length
     };
 
     for (var i in indicesToInit) {
