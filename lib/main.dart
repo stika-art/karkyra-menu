@@ -72,26 +72,12 @@ void main() async {
         ),
       );
     }
-    
-    // Скрываем лоадер через короткую паузу, чтобы Flutter успел отрисовать первый кадр
-    Future.delayed(const Duration(milliseconds: 500), () => _hideLoader());
-
   }, (error, stack) {
     debugPrint('GLOBAL ERROR: $error');
     debugPrint('STACK: $stack');
   });
 }
 
-void _hideLoader() {
-  if (kIsWeb) {
-    try {
-      // Более простой и надежный способ вызова
-      js.context.callMethod('removeFlutterLoader');
-    } catch (e) {
-      debugPrint('Error hiding loader: $e');
-    }
-  }
-}
 
 class MenuApp extends StatelessWidget {
   final bool isDeliveryMode;
