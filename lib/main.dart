@@ -139,7 +139,7 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
   bool _isMuted = true;
   Timer? _imageTimer;
   RealtimeChannel? _waiterCallChannel;
-  bool _isMenuLoading = true;
+  bool _isMenuLoading = false; // Отключаем экран загрузки навсегда
   bool _isWaiterComing = false;
 
   // _videoAssets list removed since we use dynamic bannerUrl
@@ -419,9 +419,7 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
     
     return Scaffold(
       backgroundColor: Colors.grey.shade50, // Светлый фон, чуть темнее белого
-      body: _isMenuLoading 
-      ? const Center(child: CircularProgressIndicator(color: Color(0xFFD4A043)))
-      : Center(
+      body: Center(
         child: Container(
           constraints: BoxConstraints(maxWidth: isDesktop ? 600 : double.infinity),
           child: Stack(
