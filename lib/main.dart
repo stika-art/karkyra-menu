@@ -185,6 +185,12 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
             setState(() {}); 
             if (i == _currentVideoIndex) {
               controller.play();
+              // Повторная попытка для надежности на случай блокировки браузером
+              Future.delayed(const Duration(seconds: 1), () {
+                if (mounted && !controller.value.isPlaying && i == _currentVideoIndex) {
+                  controller.play();
+                }
+              });
             }
           }
           

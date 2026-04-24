@@ -24,11 +24,6 @@
         link.href = 'manifest.json';
         document.head.appendChild(link);
 
-        if ('serviceWorker' in navigator) {
-          navigator.serviceWorker.register('pwa_sw.js').then((registration) => {
-            console.log('PWA ServiceWorker registered');
-          });
-        }
         document.title = 'Каркыра — Админ';
       } else {
         // Убрал запрет кэширования, чтобы открывалось быстро
