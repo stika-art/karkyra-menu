@@ -1,5 +1,6 @@
 {
-  "trailingSlash": false,
+  "buildCommand": "bash install-flutter.sh",
+  "outputDirectory": "build/web",
   "rewrites": [
     {
       "source": "/(.*)",
