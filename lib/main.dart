@@ -149,6 +149,9 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
     } finally {
       if (mounted) {
         _banners = MenuDataService.banners;
+        debugPrint('BANNER DEBUG: Loaded ${_banners.length} banners from service');
+        for(var b in _banners) debugPrint('  - Banner: ${b['type']} | URL: ${b['url']}');
+        
         _initializeVideos();
         _startCurrentMedia();
         setState(() => _isMenuLoading = false);
@@ -161,6 +164,7 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
   }
 
   void _initializeVideos() {
+    debugPrint('BANNER DEBUG: Starting _initializeVideos. Banners empty? ${_banners.isEmpty}');
     if (_banners.isEmpty) return;
     
     // Инициализируем только текущее и следующее видео для экономии ресурсов
@@ -182,16 +186,19 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
         _videoControllers[i] = controller;
         
         controller.initialize().then((_) {
+          debugPrint('BANNER DEBUG: Video initialized successfully: $url');
           controller.setLooping(false);
           controller.setVolume(_isMuted ? 0 : 1.0);
           
           if (mounted) {
             setState(() {}); 
             if (i == _currentVideoIndex) {
+              debugPrint('BANNER DEBUG: Starting initial play for index $i');
               controller.play();
               // Повторная попытка для надежности на случай блокировки браузером
               Future.delayed(const Duration(seconds: 1), () {
                 if (mounted && !controller.value.isPlaying && i == _currentVideoIndex) {
+                  debugPrint('BANNER DEBUG: Autoplay blocked? Retrying play for index $i');
                   controller.play();
                 }
               });
@@ -203,25 +210,39 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
               final pos = controller.value.position;
               final dur = controller.value.duration;
               if (pos >= dur && dur > Duration.zero && !controller.value.isPlaying) {
+                debugPrint('BANNER DEBUG: Video finished at index $i, moving to next');
                 _playNextVideo();
               }
             }
           });
-        }).catchError((e) => debugPrint('Video error: $e'));
+        }).catchError((e) {
+          debugPrint('BANNER DEBUG: ERROR initializing video $url: $e');
+        });
+      } else {
+        debugPrint('BANNER DEBUG: Index $i is an image, skipping video init');
       }
     }
   }
 
   void _startCurrentMedia() {
     _imageTimer?.cancel();
-    if (_banners.isEmpty) return;
+    debugPrint('BANNER DEBUG: _startCurrentMedia called for index $_currentVideoIndex');
+    if (_banners.isEmpty) {
+      debugPrint('BANNER DEBUG: _banners list is empty, nothing to start');
+      return;
+    }
     
     final current = _banners[_currentVideoIndex];
+    debugPrint('BANNER DEBUG: Current media type: ${current['type']}');
+    
     if (current['type'] == 'video') {
       final controller = _videoControllers[_currentVideoIndex];
       if (controller != null) {
+        debugPrint('BANNER DEBUG: Playing video controller at index $_currentVideoIndex');
         controller.seekTo(Duration.zero);
         controller.play();
+      } else {
+        debugPrint('BANNER DEBUG: WARNING! Controller for index $_currentVideoIndex is NULL');
       }
     } else {
       // Это изображение, ждем 5 секунд и переключаем

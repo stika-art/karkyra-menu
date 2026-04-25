@@ -79,8 +79,8 @@ class _BannerScreenState extends State<BannerScreen> {
 
       setState(() => _uploadStatus = 'Получение ссылки...');
 
-      // Получаем публичный URL
-      final publicUrl = Supabase.instance.client.storage
+      // Получаем публичный URL (явно преобразуем в строку)
+      final String publicUrl = Supabase.instance.client.storage
           .from('media')
           .getPublicUrl(storagePath);
 
@@ -114,14 +114,19 @@ class _BannerScreenState extends State<BannerScreen> {
         );
       }
     } catch (e) {
+      debugPrint('UPLOAD ERROR: $e');
       setState(() {
         _uploading = false;
         _uploadStatus = '';
       });
       if (mounted) {
+        String errorMsg = e.toString();
+        if (errorMsg.contains('Failed to fetch')) {
+          errorMsg = 'Ошибка сети/CORS: Проверьте настройки CORS в Supabase Storage';
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Ошибка загрузки: $e', style: GoogleFonts.outfit()),
+            content: Text(errorMsg, style: GoogleFonts.outfit()),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
           ),
