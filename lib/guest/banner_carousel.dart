@@ -26,16 +26,26 @@ class _BannerCarouselState extends State<BannerCarousel> {
 
   void _startAutoPlay() {
     _autoPlayTimer?.cancel();
-    _autoPlayTimer = Timer.periodic(const Duration(seconds: 8), (timer) {
-      if (widget.banners.length > 1) {
-        final nextIndex = (_currentIndex + 1) % widget.banners.length;
-        _pageController.animateToPage(
-          nextIndex,
-          duration: const Duration(milliseconds: 1000),
-          curve: Curves.easeInOutCubic,
-        );
-      }
-    });
+    
+    // Если текущий баннер - видео, мы не запускаем таймер здесь, 
+    // а ждем события завершения видео от BannerItem.
+    // Если это изображение, запускаем стандартный таймер на 8 секунд.
+    final currentBanner = widget.banners[_currentIndex];
+    if (currentBanner['type'] != 'video') {
+      _autoPlayTimer = Timer(const Duration(seconds: 8), () {
+        _moveToNext();
+      });
+    }
+  }
+
+  void _moveToNext() {
+    if (!mounted || widget.banners.length <= 1) return;
+    final nextIndex = (_currentIndex + 1) % widget.banners.length;
+    _pageController.animateToPage(
+      nextIndex,
+      duration: const Duration(milliseconds: 1000),
+      curve: Curves.easeInOutCubic,
+    );
   }
 
   @override
@@ -73,6 +83,11 @@ class _BannerCarouselState extends State<BannerCarousel> {
                 banner: banner,
                 isActive: index == _currentIndex,
                 isMuted: _isMuted,
+                onFinished: () {
+                  if (index == _currentIndex) {
+                    _moveToNext();
+                  }
+                },
               );
             },
           ),
@@ -150,12 +165,14 @@ class BannerItem extends StatefulWidget {
   final Map<String, String> banner;
   final bool isActive;
   final bool isMuted;
+  final VoidCallback? onFinished;
 
   const BannerItem({
     super.key,
     required this.banner,
     required this.isActive,
     required this.isMuted,
+    this.onFinished,
   });
 
   @override
@@ -187,9 +204,18 @@ class _BannerItemState extends State<BannerItem> {
       if (mounted) {
         setState(() {
           _isInitialized = true;
-          _controller!.setLooping(true);
+          _controller!.setLooping(false); // Для баннеров лучше не зацикливать, чтобы сработал конец
           _controller!.setVolume(widget.isMuted ? 0 : 1.0);
           if (widget.isActive) _controller!.play();
+        });
+
+        _controller!.addListener(() {
+          if (!mounted) return;
+          final pos = _controller!.value.position;
+          final dur = _controller!.value.duration;
+          if (pos >= dur && dur > Duration.zero && !(_controller!.value.isLooping)) {
+            if (widget.onFinished != null) widget.onFinished!();
+          }
         });
       }
     } catch (e) {

@@ -64,19 +64,19 @@ class CartProvider with ChangeNotifier {
       await prefs.setString('device_id', _deviceId!);
     }
 
+    // Синхронизируем имя с базой сразу при входе, если оно уже есть
+    if (_userName != null && _userName!.isNotEmpty) {
+      _syncName(_userName!);
+    }
+
     // Очистка старых участников (более 4 часов назад) чтобы не копились призраки
     try {
       final fourHoursAgo = DateTime.now().subtract(const Duration(hours: 4)).toIso8601String();
-      final participantsRes = await Supabase.instance.client
+      await Supabase.instance.client
           .from('table_participants')
           .delete()
           .eq('table_id', tableId)
-          .lt('last_active', fourHoursAgo)
-          .select();
-
-      if ((participantsRes as List).isEmpty) {
-        _isReadyLocally = false;
-      }
+          .lt('last_active', fourHoursAgo);
 
       // Удаляем "двойников" с таким же именем (если имя уже задано)
       if (_userName != null && _userName!.isNotEmpty) {
@@ -94,9 +94,26 @@ class CartProvider with ChangeNotifier {
         'p_table_id': tableId,
         'p_device_id': _deviceId,
       });
+      
+      // Повторно пушим имя после RPC (на случай если RPC создал новый рекорд с null именем)
+      if (_userName != null && _userName!.isNotEmpty) {
+        _syncName(_userName!);
+      }
     } catch (_) {}
 
     _startStreams();
+  }
+
+  Future<void> _syncName(String name) async {
+    try {
+      await Supabase.instance.client
+          .from('table_participants')
+          .update({'user_name': name})
+          .eq('table_id', tableId)
+          .eq('device_id', _deviceId!);
+    } catch (e) {
+      debugPrint('Sync name error: $e');
+    }
   }
 
   void _startStreams() {
