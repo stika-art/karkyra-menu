@@ -220,7 +220,41 @@ class _BannerScreenState extends State<BannerScreen> {
     );
   }
 
-  Future<void> _delete(String id) async {
+  Future<void> _delete(Map<String, dynamic> banner) async {
+    final String id = banner['id'];
+    final String url = banner['url'] ?? '';
+    
+    // Пытаемся удалить файл из хранилища, если это наш файл Supabase
+    if (url.contains('/storage/v1/object/public/')) {
+      try {
+        final uri = Uri.parse(url);
+        final segments = uri.pathSegments;
+        // Формат: [..., 'public', 'media', 'banners', 'file.mp4']
+        final publicIndex = segments.indexOf('public');
+        if (publicIndex != -1 && segments.length > publicIndex + 2) {
+          // Все сегменты после бакета (в нашем случае 'media') — это и есть путь
+          final storagePath = segments.sublist(publicIndex + 2).join('/');
+          final decodedPath = Uri.decodeComponent(storagePath);
+          
+          await Supabase.instance.client.storage.from('media').remove([decodedPath]);
+          
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Файл удален из Storage: $decodedPath'), backgroundColor: Colors.blue),
+            );
+          }
+          debugPrint('SUCCESS: Deleted from storage: $decodedPath');
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Ошибка Storage: $e'), backgroundColor: Colors.orange),
+          );
+        }
+        debugPrint('ERROR: Failed to delete from storage: $e');
+      }
+    }
+
     await Supabase.instance.client.from('banners').delete().eq('id', id);
     _load();
   }
@@ -391,7 +425,6 @@ class _BannerScreenState extends State<BannerScreen> {
                                         overflow: TextOverflow.ellipsis,
                                         style: GoogleFonts.outfit(color: Colors.white54, fontSize: 12),
                                       ),
-                                      const SizedBox.shrink(),
                                     if (isActive)
                                       Container(
                                         margin: const EdgeInsets.only(top: 4),
@@ -415,24 +448,31 @@ class _BannerScreenState extends State<BannerScreen> {
                                 color: const Color(0xFF2A2A2A),
                                 onSelected: (val) {
                                   if (val == 'toggle') _toggleActive(b['id'], isActive);
-                                  if (val == 'delete') _delete(b['id']);
+                                  if (val == 'delete') _delete(b);
                                 },
                                 itemBuilder: (_) => [
-                                    PopupMenuItem(value: 'toggle',
-                                      child: Row(children: [
+                                  PopupMenuItem(
+                                    value: 'toggle',
+                                    child: Row(
+                                      children: [
                                         Icon(isActive ? Icons.cancel_rounded : Icons.check_circle_rounded,
-                                          color: const Color(0xFFD4A043), size: 18),
+                                            color: const Color(0xFFD4A043), size: 18),
                                         const SizedBox(width: 8),
                                         Text(isActive ? 'Деактивировать' : 'Активировать',
-                                          style: GoogleFonts.outfit(color: Colors.white)),
-                                      ])),
-                                  PopupMenuItem(value: 'delete',
-                                    child: Row(children: [
-                                      const Icon(Icons.delete_rounded, color: Colors.red, size: 18),
-                                      const SizedBox(width: 8),
-                                      Text('Удалить',
-                                        style: GoogleFonts.outfit(color: Colors.red)),
-                                    ])),
+                                            style: GoogleFonts.outfit(color: Colors.white)),
+                                      ],
+                                    ),
+                                  ),
+                                  PopupMenuItem(
+                                    value: 'delete',
+                                    child: Row(
+                                      children: [
+                                        const Icon(Icons.delete_rounded, color: Colors.red, size: 18),
+                                        const SizedBox(width: 8),
+                                        Text('Удалить', style: GoogleFonts.outfit(color: Colors.red)),
+                                      ],
+                                    ),
+                                  ),
                                 ],
                                 icon: const Icon(Icons.more_vert_rounded, color: Colors.white38),
                               ),

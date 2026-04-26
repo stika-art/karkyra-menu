@@ -21,6 +21,7 @@ import 'services/favorites_provider.dart';
 import 'services/telegram_service.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:js' as js;
+import 'guest/banner_carousel.dart';
 
 List<Category> get categories {
   // Получаем список из базы и убираем оттуда категорию с id '0', если она там есть
@@ -123,16 +124,9 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
   String? activeQuickFilter; // To track Top, New, etc.
   final ScrollController _categoryScrollController = ScrollController();
   List<Map<String, String>> _banners = [];
-  final Map<int, VideoPlayerController> _videoControllers = {};
-  final PageController _bannerPageController = PageController();
-  int _currentVideoIndex = 0;
-  bool _isMuted = true;
-  Timer? _imageTimer;
+  bool _isMenuLoading = false;
   RealtimeChannel? _waiterCallChannel;
-  bool _isMenuLoading = false; // Отключаем экран загрузки навсегда
   bool _isWaiterComing = false;
-
-  // _videoAssets list removed since we use dynamic bannerUrl
 
   @override
   void initState() {
@@ -142,19 +136,15 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
 
   Future<void> _loadMenuData() async {
     try {
-      // Ставим таймаут, чтобы не висеть вечно если интернет плохой
       await MenuDataService.load().timeout(const Duration(seconds: 5));
     } catch (e) {
       debugPrint('LOAD MENU ERROR: $e');
     } finally {
       if (mounted) {
-        _banners = MenuDataService.banners;
-        debugPrint('BANNER DEBUG: Loaded ${_banners.length} banners from service');
-        for(var b in _banners) debugPrint('  - Banner: ${b['type']} | URL: ${b['url']}');
-        
-        _initializeVideos();
-        _startCurrentMedia();
-        setState(() => _isMenuLoading = false);
+        setState(() {
+          _banners = MenuDataService.banners;
+          _isMenuLoading = false;
+        });
         
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _askUserName();
@@ -163,143 +153,10 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
     }
   }
 
-  void _initializeVideos() {
-    debugPrint('BANNER DEBUG: Starting _initializeVideos. Banners empty? ${_banners.isEmpty}');
-    if (_banners.isEmpty) return;
-    
-    // Инициализируем только текущее и следующее видео для экономии ресурсов
-    final indicesToInit = {
-      _currentVideoIndex,
-      if (_banners.length > 1) (_currentVideoIndex + 1) % _banners.length
-    };
-
-    for (var i in indicesToInit) {
-      if (_videoControllers.containsKey(i)) continue; // Уже инициализировано
-      
-      final banner = _banners[i];
-      if (banner['type'] == 'video') {
-        final url = banner['url']!;
-        final controller = url.startsWith('assets/')
-            ? VideoPlayerController.asset(url)
-            : VideoPlayerController.networkUrl(Uri.parse(url));
-            
-        _videoControllers[i] = controller;
-        
-        controller.initialize().then((_) {
-          debugPrint('BANNER DEBUG: Video initialized successfully: $url');
-          controller.setLooping(false);
-          controller.setVolume(_isMuted ? 0 : 1.0);
-          
-          if (mounted) {
-            setState(() {}); 
-            if (i == _currentVideoIndex) {
-              debugPrint('BANNER DEBUG: Starting initial play for index $i');
-              controller.play();
-              // Повторная попытка для надежности на случай блокировки браузером
-              Future.delayed(const Duration(seconds: 1), () {
-                if (mounted && !controller.value.isPlaying && i == _currentVideoIndex) {
-                  debugPrint('BANNER DEBUG: Autoplay blocked? Retrying play for index $i');
-                  controller.play();
-                }
-              });
-            }
-          }
-          
-          controller.addListener(() {
-            if (_currentVideoIndex == i && mounted) {
-              final pos = controller.value.position;
-              final dur = controller.value.duration;
-              if (pos >= dur && dur > Duration.zero && !controller.value.isPlaying) {
-                debugPrint('BANNER DEBUG: Video finished at index $i, moving to next');
-                _playNextVideo();
-              }
-            }
-          });
-        }).catchError((e) {
-          debugPrint('BANNER DEBUG: ERROR initializing video $url: $e');
-        });
-      } else {
-        debugPrint('BANNER DEBUG: Index $i is an image, skipping video init');
-      }
-    }
-  }
-
-  void _startCurrentMedia() {
-    _imageTimer?.cancel();
-    debugPrint('BANNER DEBUG: _startCurrentMedia called for index $_currentVideoIndex');
-    if (_banners.isEmpty) {
-      debugPrint('BANNER DEBUG: _banners list is empty, nothing to start');
-      return;
-    }
-    
-    final current = _banners[_currentVideoIndex];
-    debugPrint('BANNER DEBUG: Current media type: ${current['type']}');
-    
-    if (current['type'] == 'video') {
-      final controller = _videoControllers[_currentVideoIndex];
-      if (controller != null) {
-        debugPrint('BANNER DEBUG: Playing video controller at index $_currentVideoIndex');
-        controller.seekTo(Duration.zero);
-        controller.play();
-      } else {
-        debugPrint('BANNER DEBUG: WARNING! Controller for index $_currentVideoIndex is NULL');
-      }
-    } else {
-      // Это изображение, ждем 5 секунд и переключаем
-      _imageTimer = Timer(const Duration(seconds: 5), () {
-        if (mounted) _playNextVideo();
-      });
-    }
-  }
-
-  void _playNextVideo() {
-    if (_banners.isEmpty) return;
-    
-    int nextIndex = (_currentVideoIndex + 1) % _banners.length;
-    _bannerPageController.animateToPage(
-      nextIndex,
-      duration: const Duration(milliseconds: 800),
-      curve: Curves.easeInOutCubic,
-    );
-  }
-
-  void _onBannerChanged(int index) {
-    if (_banners.isEmpty) return;
-    _imageTimer?.cancel();
-    
-    // Останавливаем предыдущее видео
-    final prevController = _videoControllers[_currentVideoIndex];
-    if (prevController != null) {
-      prevController.pause();
-    }
-    
-    setState(() {
-      _currentVideoIndex = index;
-    });
-    
-    // Подгружаем видео для текущего и следующего слайда
-    _initializeVideos();
-    
-    // Запускаем новое медиа (видео или таймер фото)
-    _startCurrentMedia();
-  }
-
-  void _toggleMute() {
-    setState(() {
-      _isMuted = !_isMuted;
-      _videoControllers.forEach((_, controller) {
-        controller.setVolume(_isMuted ? 0 : 1.0);
-      });
-    });
-  }
-
   @override
   void dispose() {
-    _imageTimer?.cancel();
     _waiterCallChannel?.unsubscribe();
-    _videoControllers.forEach((_, controller) => controller.dispose());
     _categoryScrollController.dispose();
-    _bannerPageController.dispose();
     super.dispose();
   }
 
@@ -447,7 +304,7 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
                   SliverToBoxAdapter(
                     child: Column(
                       children: [
-                        _buildBanner(),
+                        BannerCarousel(banners: _banners),
                         // Используем отрицательный отступ, чтобы блок "наехал" на баннер и скрыл стык
                         Transform.translate(
                           offset: const Offset(0, -2),
@@ -657,7 +514,8 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
                 _waiterCallChannel?.subscribe();
 
                 if (SettingsService.telegramNotify) {
-                  await TelegramService.notifyWaiterCall(tableId: widget.tableId);
+                  final waiterChatId = await TelegramService.getWaiterChatId(widget.tableId);
+                  await TelegramService.notifyWaiterCall(tableId: widget.tableId, customChatId: waiterChatId);
                 }
                 
                 if (mounted) {
@@ -802,147 +660,6 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
     );
   }
 
-  Widget _buildBanner() {
-    final screenHeight = MediaQuery.of(context).size.height;
-    return VisibilityDetector(
-      key: const Key('main_banner_detector'),
-      onVisibilityChanged: (info) {
-        if (_banners.isNotEmpty) {
-          final current = _banners[_currentVideoIndex];
-          if (current['type'] == 'video') {
-            final controller = _videoControllers[_currentVideoIndex];
-            if (controller != null && controller.value.isInitialized) {
-              if (info.visibleFraction == 0) {
-                controller.pause();
-              } else {
-                controller.play();
-              }
-            }
-          }
-        }
-      },
-      child: Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 12), 
-      height: screenHeight * 0.55, 
-      decoration: BoxDecoration(
-        color: Colors.grey.shade200,
-        borderRadius: const BorderRadius.vertical(
-          bottom: Radius.circular(40),
-        ),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Stack(
-        children: [
-          // Media Carousel
-          _banners.isEmpty
-              ? Container(color: Colors.grey.shade200)
-              : PageView.builder(
-                  controller: _bannerPageController,
-                  onPageChanged: _onBannerChanged,
-                  itemCount: _banners.length,
-                  itemBuilder: (context, index) {
-                    final banner = _banners[index];
-                    if (banner['type'] == 'video') {
-                      final controller = _videoControllers[index];
-                      if (controller == null || !controller.value.isInitialized) {
-                        return _buildBannerPlaceholder(banner);
-                      }
-                      return IgnorePointer(
-                        ignoring: true,
-                        child: FittedBox(
-                          fit: BoxFit.cover,
-                          alignment: Alignment.center,
-                          child: SizedBox(
-                            width: controller.value.size.width,
-                            height: controller.value.size.height,
-                            child: VideoPlayer(controller),
-                          ),
-                        ),
-                      );
-                    } else {
-                      // Изображение
-                      return Image.network(
-                        banner['url']!,
-                        fit: BoxFit.cover,
-                        width: double.infinity,
-                        height: double.infinity,
-                      );
-                    }
-                  },
-                ),
-          // Ultra-soft gradient overlay
-          Positioned.fill(
-            child: IgnorePointer(
-              ignoring: true,
-              child: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.black.withOpacity(0.2),
-                      Colors.transparent,
-                      Colors.transparent,
-                      Colors.black.withOpacity(0.05),
-                      Colors.black.withOpacity(0.15),
-                    ],
-                    stops: const [0.0, 0.15, 0.5, 0.85, 1.0],
-                  ),
-                ),
-              ),
-            ),
-          ),
-          // Pagination Dots
-          if (_banners.length > 1)
-            Positioned(
-              bottom: 24,
-              left: 0,
-              right: 0,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(_banners.length, (index) {
-                  return AnimatedContainer(
-                    duration: const Duration(milliseconds: 300),
-                    margin: const EdgeInsets.symmetric(horizontal: 4),
-                    width: _currentVideoIndex == index ? 20 : 6,
-                    height: 6,
-                    decoration: BoxDecoration(
-                      color: _currentVideoIndex == index 
-                          ? const Color(0xFFD4A043) 
-                          : Colors.white.withOpacity(0.4),
-                      borderRadius: BorderRadius.circular(3),
-                    ),
-                  );
-                }),
-              ),
-            ),
-          // Sound Toggle Button
-          if (_banners.isNotEmpty && _banners[_currentVideoIndex]['type'] == 'video')
-            Positioned(
-              bottom: 20,
-              right: 20,
-              child: GestureDetector(
-                onTap: _toggleMute,
-                child: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.3),
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white12, width: 1),
-                  ),
-                  child: Icon(
-                    _isMuted ? Icons.volume_off_rounded : Icons.volume_up_rounded,
-                    color: Colors.white,
-                    size: 16,
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    ));
-  }
 
   Widget _buildQuickCategories() {
     final quickCats = [
@@ -2796,10 +2513,29 @@ class _BookingSheetState extends State<_BookingSheet> {
   final TextEditingController _endTimeController = TextEditingController(text: '21:00');
   bool _isSubmitting = false;
   String? _localError;
+  
+  String _preorderType = 'onsite'; // onsite, dishes, banquet
+  List<Map<String, dynamic>> _banquetSets = [];
+  String? _selectedBanquetId;
+  final List<MenuItem> _selectedDishes = [];
+  bool _loadingBanquets = false;
 
   @override
   void initState() {
     super.initState();
+    _loadBanquetSets();
+  }
+
+  Future<void> _loadBanquetSets() async {
+    setState(() => _loadingBanquets = true);
+    try {
+      final res = await Supabase.instance.client.from('banquet_menu').select();
+      if (mounted) setState(() => _banquetSets = List<Map<String, dynamic>>.from(res));
+    } catch (e) {
+      debugPrint('Load banquets error: $e');
+    } finally {
+      if (mounted) setState(() => _loadingBanquets = false);
+    }
   }
 
   @override
@@ -2948,6 +2684,23 @@ class _BookingSheetState extends State<_BookingSheet> {
                 contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
               ),
             ),
+            const SizedBox(height: 30),
+            Text('ВАРИАНТ МЕНЮ', style: GoogleFonts.outfit(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black54)),
+            const SizedBox(height: 16),
+            _buildPreorderTypeOption('onsite', 'Закажем когда придем', Icons.restaurant_rounded),
+            const SizedBox(height: 8),
+            _buildPreorderTypeOption('dishes', 'Выбрать блюда из меню', Icons.shopping_basket_rounded),
+            const SizedBox(height: 8),
+            _buildPreorderTypeOption('banquet', 'Банкетное меню', Icons.celebration_rounded),
+            
+            if (_preorderType == 'dishes') ...[
+              const SizedBox(height: 20),
+              _buildDishesPicker(),
+            ],
+            if (_preorderType == 'banquet') ...[
+              const SizedBox(height: 20),
+              _buildBanquetPicker(),
+            ],
             const SizedBox(height: 12),
             if (_localError != null)
               Padding(
@@ -2980,7 +2733,9 @@ class _BookingSheetState extends State<_BookingSheet> {
                     'guests_count': guests,
                     'booking_time': _timeController.text.trim(),
                     'end_time': _endTimeController.text.trim(),
-                    'status': 'confirmed'
+                    'status': 'confirmed',
+                    'preorder_type': _preorderType,
+                    'preorder_details': _getPreorderSummary(),
                   });
 
                   // 2. Помечаем стол как забронированный
@@ -2998,7 +2753,8 @@ class _BookingSheetState extends State<_BookingSheet> {
                       '⏰ Время: * ${_timeController.text} *';
 
                   if (SettingsService.telegramNotify) {
-                    await TelegramService.sendMessage(msg);
+                    final waiterChatId = await TelegramService.getWaiterChatId(widget.table['id'].toString());
+                    await TelegramService.sendMessage(msg, customChatId: waiterChatId);
                   }
 
                   if (mounted) {
@@ -3034,9 +2790,217 @@ class _BookingSheetState extends State<_BookingSheet> {
     );
   }
 
+  Widget _buildPreorderTypeOption(String type, String label, IconData icon) {
+    final isSelected = _preorderType == type;
+    return GestureDetector(
+      onTap: () => setState(() => _preorderType = type),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.black : Colors.grey.shade50,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: isSelected ? Colors.black : Colors.grey.shade200),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: isSelected ? Colors.white : Colors.black54),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(label, style: GoogleFonts.outfit(
+                color: isSelected ? Colors.white : Colors.black,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+              )),
+            ),
+            if (isSelected) const Icon(Icons.check_circle_rounded, color: Colors.white),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDishesPicker() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('ВЫБЕРИТЕ БЛЮДА', style: GoogleFonts.outfit(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black54)),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            ..._selectedDishes.map((d) => Chip(
+              label: Text(d.title),
+              onDeleted: () => setState(() => _selectedDishes.remove(d)),
+              backgroundColor: Colors.grey.shade100,
+              labelStyle: GoogleFonts.outfit(fontSize: 12),
+            )),
+            ActionChip(
+              label: const Text('+ Добавить'),
+              onPressed: _showDishSelectionDialog,
+              backgroundColor: const Color(0xFFD4A043).withOpacity(0.1),
+              labelStyle: GoogleFonts.outfit(color: const Color(0xFFD4A043), fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBanquetPicker() {
+    if (_loadingBanquets) return const Center(child: CircularProgressIndicator());
+    if (_banquetSets.isEmpty) return const Text('Нет доступных банкетных сетов', style: TextStyle(fontSize: 12, color: Colors.black38));
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('ВЫБЕРИТЕ БАНКЕТНЫЙ СЕТ', style: GoogleFonts.outfit(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black54)),
+        const SizedBox(height: 12),
+        ..._banquetSets.map((s) {
+          final isSelected = _selectedBanquetId == s['id'];
+          return GestureDetector(
+            onTap: () => setState(() => _selectedBanquetId = s['id']),
+            child: Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: isSelected ? const Color(0xFFD4A043).withOpacity(0.1) : Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: isSelected ? const Color(0xFFD4A043) : Colors.grey.shade200),
+              ),
+              child: Row(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: s['image_url'] != null && s['image_url'].toString().isNotEmpty
+                        ? Image.network(s['image_url'], width: 50, height: 50, fit: BoxFit.cover, errorBuilder: (_,__,___) => _banquetPh())
+                        : _banquetPh(),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(s['title'], style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
+                        Row(
+                          children: [
+                            Text(s['price'].toString() + ' сом/чел', style: GoogleFonts.outfit(fontSize: 12, color: Colors.black54)),
+                            const SizedBox(width: 12),
+                            GestureDetector(
+                              onTap: () => _showBanquetDetails(s),
+                              child: Text('Посмотреть состав', style: GoogleFonts.outfit(fontSize: 12, color: const Color(0xFFD4A043), fontWeight: FontWeight.bold, decoration: TextDecoration.underline)),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (isSelected) const Icon(Icons.check_circle, color: Color(0xFFD4A043)),
+                ],
+              ),
+            ),
+          );
+        }),
+      ],
+    );
+  }
+
+  void _showDishSelectionDialog() {
+    final allItems = MenuDataService.items;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Выберите блюдо'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: allItems.length,
+            itemBuilder: (_, i) {
+              final item = allItems[i];
+              return ListTile(
+                title: Text(item.title),
+                subtitle: Text(item.price.toString() + ' сом'),
+                onTap: () {
+                  setState(() => _selectedDishes.add(item));
+                  Navigator.pop(ctx);
+                },
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _getPreorderSummary() {
+    if (_preorderType == 'onsite') return 'Заказ на месте';
+    if (_preorderType == 'dishes') {
+      return 'Блюда: ' + _selectedDishes.map((d) => d.title).join(', ');
+    }
+    if (_preorderType == 'banquet') {
+      final s = _banquetSets.firstWhere((x) => x['id'] == _selectedBanquetId, orElse: () => {});
+      return 'Банкет: ' + (s['title'] ?? 'Не выбран');
+    }
+    return '';
+  }
+
+  Widget _banquetPh() {
+    return Container(
+      width: 50, height: 50, 
+      color: Colors.grey.shade100, 
+      child: const Icon(Icons.celebration_rounded, color: Colors.black12, size: 24),
+    );
+  }
+
+  void _showBanquetDetails(Map set) async {
+    final List<dynamic> dishIds = set['dish_ids'] ?? [];
+    if (dishIds.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('В этом сете пока нет блюд')));
+      return;
+    }
+
+    showDialog(
+      context: context,
+      builder: (ctx) => FutureBuilder(
+        future: Supabase.instance.client.from('menu_items_db').select().inFilter('id', dishIds),
+        builder: (context, snap) {
+          if (snap.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final dishes = snap.data as List? ?? [];
+          return AlertDialog(
+            backgroundColor: Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+            title: Text('Состав: ${set['title']}', style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: dishes.length,
+                itemBuilder: (_, i) {
+                  final d = dishes[i];
+                  return ListTile(
+                    leading: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: _buildSmartImage(d['photo_url'] ?? '', width: 40, height: 40),
+                    ),
+                    title: Text(d['title'], style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.bold)),
+                    subtitle: Text(d['description'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11)),
+                  );
+                },
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Закрыть', style: TextStyle(color: Colors.black))),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   void _showError(String msg) {
     setState(() => _localError = msg);
-    // Автоматически скрываем ошибку через 3 секунды
     Future.delayed(const Duration(seconds: 3), () {
       if (mounted) setState(() => _localError = null);
     });
@@ -3130,27 +3094,3 @@ Widget _buildSmartImage(String url, {double? width, double? height}) {
   );
 }
 
-  Widget _buildBannerPlaceholder(Map<String, String> banner) {
-    final previewUrl = banner['preview_url'] ?? banner['url'];
-    // Если нет даже ссылки, показываем пустой светлый блок
-    if (previewUrl == null) return Container(color: Colors.grey.shade200);
-    
-    return Container(
-      color: Colors.grey.shade200,
-      child: Image.network(
-        previewUrl,
-        fit: BoxFit.cover,
-        // Добавляем прозрачность при загрузке для мягкости
-        frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-          if (wasSynchronouslyLoaded) return child;
-          return AnimatedOpacity(
-            opacity: frame == null ? 0 : 1,
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOut,
-            child: child,
-          );
-        },
-        errorBuilder: (context, error, stackTrace) => Container(color: Colors.grey.shade200),
-      ),
-    );
-  }

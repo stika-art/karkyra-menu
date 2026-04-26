@@ -13,6 +13,7 @@ class TablesScreen extends StatefulWidget {
 class _TablesScreenState extends State<TablesScreen> {
   List<Map<String, dynamic>> _floors = [];
   List<Map<String, dynamic>> _tables = [];
+  List<Map<String, dynamic>> _waiters = [];
   String? _selectedFloorId;
   bool _loading = true;
 
@@ -33,10 +34,12 @@ class _TablesScreenState extends State<TablesScreen> {
     try {
       final fRes = await Supabase.instance.client.from('floors').select().order('sort_order');
       final tRes = await Supabase.instance.client.from('restaurant_tables').select();
+      final wRes = await Supabase.instance.client.from('waiters').select().eq('is_active', true).order('name');
       
       setState(() {
         _floors = List<Map<String, dynamic>>.from(fRes);
         _tables = List<Map<String, dynamic>>.from(tRes);
+        _waiters = List<Map<String, dynamic>>.from(wRes);
         if (_floors.isNotEmpty && _selectedFloorId == null) {
           _selectedFloorId = _floors.first['id'];
         }
@@ -175,46 +178,80 @@ class _TablesScreenState extends State<TablesScreen> {
     final widthCtrl = TextEditingController(text: (table['width'] ?? 80).toString());
     final heightCtrl = TextEditingController(text: (table['height'] ?? 80).toString());
     final rotationCtrl = TextEditingController(text: (table['rotation'] ?? 0).toString());
+    String? selectedWaiterId = table['waiter_id'];
 
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E1E),
-        title: Text('Параметры стола', style: GoogleFonts.outfit(color: Colors.white)),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _dialogField(labelCtrl, 'Номер / Название'),
-              const SizedBox(height: 12),
-              _dialogField(seatsCtrl, 'Кол-во мест', type: TextInputType.number),
-              const SizedBox(height: 12),
-              Row(children: [
-                Expanded(child: _dialogField(widthCtrl, 'Ширина', type: TextInputType.number)),
-                const SizedBox(width: 12),
-                Expanded(child: _dialogField(heightCtrl, 'Высота', type: TextInputType.number)),
-              ]),
-              const SizedBox(height: 12),
-              _dialogField(rotationCtrl, 'Поворот (градусы)', type: TextInputType.number),
-            ],
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          backgroundColor: const Color(0xFF1E1E1E),
+          title: Text('Параметры стола', style: GoogleFonts.outfit(color: Colors.white)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _dialogField(labelCtrl, 'Номер / Название'),
+                const SizedBox(height: 12),
+                _dialogField(seatsCtrl, 'Кол-во мест', type: TextInputType.number),
+                const SizedBox(height: 12),
+                
+                // Выбор официанта
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: selectedWaiterId,
+                      hint: const Text('Закрепить официанта', style: TextStyle(color: Colors.white38, fontSize: 14)),
+                      dropdownColor: const Color(0xFF2A2A2A),
+                      isExpanded: true,
+                      items: [
+                        const DropdownMenuItem<String>(
+                          value: null,
+                          child: Text('Без официанта', style: TextStyle(color: Colors.white70)),
+                        ),
+                        ..._waiters.map((w) => DropdownMenuItem<String>(
+                          value: w['id'],
+                          child: Text(w['name'], style: const TextStyle(color: Colors.white)),
+                        )),
+                      ],
+                      onChanged: (val) => setD(() => selectedWaiterId = val),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                Row(children: [
+                  Expanded(child: _dialogField(widthCtrl, 'Ширина', type: TextInputType.number)),
+                  const SizedBox(width: 12),
+                  Expanded(child: _dialogField(heightCtrl, 'Высота', type: TextInputType.number)),
+                ]),
+                const SizedBox(height: 12),
+                _dialogField(rotationCtrl, 'Поворот (градусы)', type: TextInputType.number),
+              ],
+            ),
           ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Отмена', style: TextStyle(color: Colors.white38))),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(ctx, {
+                  'label': labelCtrl.text.trim(),
+                  'seats': int.tryParse(seatsCtrl.text) ?? 4,
+                  'width': double.tryParse(widthCtrl.text) ?? 80.0,
+                  'height': double.tryParse(heightCtrl.text) ?? 80.0,
+                  'rotation': double.tryParse(rotationCtrl.text) ?? 0.0,
+                  'waiter_id': selectedWaiterId,
+                });
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFD4A043)),
+              child: const Text('Сохранить', style: TextStyle(color: Colors.black)),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Отмена', style: TextStyle(color: Colors.white38))),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(ctx, {
-                'label': labelCtrl.text.trim(),
-                'seats': int.tryParse(seatsCtrl.text) ?? 4,
-                'width': double.tryParse(widthCtrl.text) ?? 80.0,
-                'height': double.tryParse(heightCtrl.text) ?? 80.0,
-                'rotation': double.tryParse(rotationCtrl.text) ?? 0.0,
-              });
-            },
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFD4A043)),
-            child: const Text('Сохранить', style: TextStyle(color: Colors.black)),
-          ),
-        ],
       ),
     );
 

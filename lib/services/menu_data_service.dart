@@ -13,8 +13,7 @@ class MenuDataService {
 
   static List<MenuItem> get items => _cachedItems;
   static List<Category> get categories => _cachedCategories;
-  static List<Map<String, String>> get banners => 
-      _cachedBanners.isNotEmpty ? _cachedBanners : [{'url': 'assets/videos/test.mp4', 'type': 'video'}];
+  static List<Map<String, String>> get banners => _cachedBanners;
 
   static Future<void> load() async {
     try {
@@ -108,15 +107,18 @@ class MenuDataService {
       // Загружаем баннеры
       final bannerRes = await Supabase.instance.client
           .from('banners')
-          .select('url, type')
+          .select()
           .eq('is_active', true)
           .order('created_at', ascending: true)
           .timeout(const Duration(seconds: 5));
       
       if (bannerRes != null) {
-        _cachedBanners = (bannerRes as List).map<Map<String, String>>((b) => {
-          'url': (b['url'] ?? '').toString(),
-          'type': (b['type'] ?? 'video').toString(),
+        _cachedBanners = (bannerRes as List).map<Map<String, String>>((b) {
+          final map = <String, String>{};
+          (b as Map<String, dynamic>).forEach((key, value) {
+            map[key] = value?.toString() ?? '';
+          });
+          return map;
         }).toList();
       }
 

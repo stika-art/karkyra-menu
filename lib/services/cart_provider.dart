@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/cart_item.dart';
+import '../models/menu_item.dart';
+import 'telegram_service.dart';
+import 'menu_data_service.dart';
 
 class CartProvider with ChangeNotifier {
   final String tableId;
@@ -181,12 +184,39 @@ class CartProvider with ChangeNotifier {
 
   Future<void> confirmOrder() async {
     try {
+      // Собираем данные для уведомления ПЕРЕД обновлением статуса
+      final pendingItems = _items.where((it) => it.status == 'ordering').toList();
+      double total = 0;
+      List<Map<String, dynamic>> itemsForTelegram = [];
+      
+      for (var it in pendingItems) {
+        final menuDish = MenuDataService.items.firstWhere((m) => m.id == it.menuItemId, 
+            orElse: () => MenuItem(id: '', title: 'Блюдо', price: 0, categoryId: '', description: '', images: []));
+        total += it.quantity * menuDish.price;
+        itemsForTelegram.add({
+          'title': menuDish.title,
+          'qty': it.quantity,
+          'price': menuDish.price,
+        });
+      }
+
       // 1. Все товары в 'confirmed'
       await Supabase.instance.client
           .from('orders_new')
           .update({'status': 'confirmed'})
           .eq('table_id', tableId)
           .eq('status', 'ordering');
+
+      // 2. Уведомляем официанта (или общий чат)
+      if (itemsForTelegram.isNotEmpty) {
+        final waiterChatId = await TelegramService.getWaiterChatId(tableId);
+        await TelegramService.notifyNewOrder(
+          tableId: tableId, 
+          items: itemsForTelegram, 
+          total: total,
+          customChatId: waiterChatId,
+        );
+      }
 
       // 2. Сессия стола в 'confirmed' (для звука в админке)
       try {

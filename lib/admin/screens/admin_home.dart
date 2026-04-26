@@ -6,6 +6,8 @@ import 'orders_screen.dart';
 import 'tables_screen.dart';
 import 'banner_screen.dart';
 import 'settings_screen.dart';
+import 'banquet_screen.dart';
+import 'waiters_screen.dart';
 
 class AdminHome extends StatefulWidget {
   const AdminHome({super.key});
@@ -23,6 +25,8 @@ class _AdminHomeState extends State<AdminHome> {
     _NavItem(icon: Icons.eco_rounded, label: 'Ингредиенты'),
     _NavItem(icon: Icons.table_restaurant_rounded, label: 'Столы'),
     _NavItem(icon: Icons.play_circle_outline_rounded, label: 'Баннер'),
+    _NavItem(icon: Icons.celebration_rounded, label: 'Банкеты'),
+    _NavItem(icon: Icons.people_alt_rounded, label: 'Официанты'),
     _NavItem(icon: Icons.settings_rounded, label: 'Настройки'),
   ];
 
@@ -32,6 +36,8 @@ class _AdminHomeState extends State<AdminHome> {
     const IngredientsScreen(),
     const TablesScreen(),
     const BannerScreen(),
+    const BanquetScreen(),
+    const WaitersScreen(),
     const SettingsScreen(),
   ];
 

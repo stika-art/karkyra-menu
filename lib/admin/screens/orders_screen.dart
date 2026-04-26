@@ -924,6 +924,28 @@ class _OrdersScreenState extends State<OrdersScreen>
                       ],
                     ),
                     const SizedBox(height: 12),
+                    if (b['preorder_details'] != null && b['preorder_details'].toString().isNotEmpty)
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        margin: const EdgeInsets.only(bottom: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.05),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.white10),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.menu_book_rounded, color: Color(0xFFD4A043), size: 16),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'МЕНЮ: ${b['preorder_details']}',
+                                style: GoogleFonts.outfit(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     Row(
                       children: [
                         if (b['status'] == 'confirmed')
