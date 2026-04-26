@@ -204,10 +204,18 @@ class _BannerItemState extends State<BannerItem> {
       if (mounted) {
         setState(() {
           _isInitialized = true;
-          _controller!.setLooping(false); // Для баннеров лучше не зацикливать, чтобы сработал конец
+          _controller!.setLooping(false); 
           _controller!.setVolume(widget.isMuted ? 0 : 1.0);
-          if (widget.isActive) _controller!.play();
         });
+
+        // Даем небольшую задержку перед воспроизведением для стабильности на Web
+        if (widget.isActive) {
+          Future.delayed(const Duration(milliseconds: 100), () {
+            if (mounted && widget.isActive) {
+              _controller?.play();
+            }
+          });
+        }
 
         _controller!.addListener(() {
           if (!mounted) return;
@@ -249,10 +257,14 @@ class _BannerItemState extends State<BannerItem> {
     return VisibilityDetector(
       key: Key('banner_${widget.banner['url']}'),
       onVisibilityChanged: (info) {
-        if (!mounted || _controller == null) return;
-        if (info.visibleFraction < 0.5) {
+        if (!mounted || _controller == null || !_isInitialized) return;
+        
+        // Паузим только если видео реально ушло с экрана (меньше 10% видимости)
+        if (info.visibleFraction < 0.1) {
           _controller!.pause();
-        } else if (widget.isActive) {
+        } 
+        // Воспроизводим если баннер активен и виден хотя бы наполовину
+        else if (widget.isActive && info.visibleFraction > 0.5) {
           _controller!.play();
         }
       },
