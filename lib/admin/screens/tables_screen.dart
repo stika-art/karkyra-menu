@@ -81,11 +81,19 @@ class _TablesScreenState extends State<TablesScreen> {
     );
 
     if (name != null && name.isNotEmpty) {
-      await Supabase.instance.client.from('floors').insert({
-        'name': name,
-        'sort_order': _floors.length,
-      });
-      _load();
+      try {
+        await Supabase.instance.client.from('floors').insert({
+          'name': name,
+          'sort_order': _floors.length,
+        });
+        await _load();
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Ошибка при создании зала: $e', style: GoogleFonts.outfit()), backgroundColor: Colors.redAccent),
+          );
+        }
+      }
     }
   }
 
@@ -256,8 +264,16 @@ class _TablesScreenState extends State<TablesScreen> {
     );
 
     if (result != null) {
-      await Supabase.instance.client.from('restaurant_tables').update(result).eq('id', table['id']);
-      _load();
+      try {
+        await Supabase.instance.client.from('restaurant_tables').update(result).eq('id', table['id']);
+        await _load();
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Ошибка при сохранении: $e', style: GoogleFonts.outfit()), backgroundColor: Colors.redAccent),
+          );
+        }
+      }
     }
   }
 
@@ -278,20 +294,30 @@ class _TablesScreenState extends State<TablesScreen> {
   Future<void> _addTable(double x, double y) async {
     if (_selectedFloorId == null) return;
     
-    int tableNum = _tables.length + 1;
-    await Supabase.instance.client.from('restaurant_tables').insert({
-      'floor_id': _selectedFloorId,
-      'label': 'Стол $tableNum',
-      'seats': 4,
-      'pos_x': x,
-      'pos_y': y,
-      'width': 80,
-      'height': 80,
-      'rotation': 0,
-      'is_active': true,
-    });
-    _load();
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Стол добавлен. Настройте его параметры кликом.')));
+    try {
+      int tableNum = _tables.length + 1;
+      await Supabase.instance.client.from('restaurant_tables').insert({
+        'floor_id': _selectedFloorId,
+        'label': 'Стол $tableNum',
+        'seats': 4,
+        'pos_x': x,
+        'pos_y': y,
+        'width': 80,
+        'height': 80,
+        'rotation': 0,
+        'is_active': true,
+      });
+      await _load();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Стол добавлен. Настройте его параметры кликом.')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка при добавлении стола: $e', style: GoogleFonts.outfit()), backgroundColor: Colors.redAccent),
+        );
+      }
+    }
   }
 
   Future<void> _deleteTable(String id) async {
@@ -528,7 +554,11 @@ class _TablesScreenState extends State<TablesScreen> {
                       ? const Center(child: CircularProgressIndicator(color: Color(0xFFD4A043)))
                       : GestureDetector(
                           onTapUp: _mode == 'add' ? (details) => _handleAddTap(details) : null,
-                          child: _buildHallSchemeUI(currFloor, currTables),
+                          child: SizedBox(
+                            width: 360,
+                            height: 600,
+                            child: _buildHallSchemeUI(currFloor, currTables),
+                          ),
             ),
           ),
         ),
@@ -543,20 +573,25 @@ class _TablesScreenState extends State<TablesScreen> {
     return Stack(
       clipBehavior: Clip.none,
       children: [
+        // Прозрачная подложка для захвата кликов по всей площади
+        Positioned.fill(child: Container(color: Colors.transparent)),
+        
         // 1. ФОН
         if (currFloor['plan_url'] != null && currFloor['plan_url'].toString().isNotEmpty)
-          Image.network(
-            currFloor['plan_url'],
-            fit: BoxFit.fill,
-            alignment: Alignment.center,
-            loadingBuilder: (ctx, child, progress) {
-              if (progress == null) return child;
-              return const Center(child: CircularProgressIndicator(color: Color(0xFFD4A043)));
-            },
-            errorBuilder: (_, __, ___) => _buildFallbackGrid(),
+          Positioned.fill(
+            child: Image.network(
+              currFloor['plan_url'],
+              fit: BoxFit.fill,
+              alignment: Alignment.center,
+              loadingBuilder: (ctx, child, progress) {
+                if (progress == null) return child;
+                return const Center(child: CircularProgressIndicator(color: Color(0xFFD4A043)));
+              },
+              errorBuilder: (_, __, ___) => _buildFallbackGrid(),
+            ),
           )
         else
-          _buildFallbackGrid(),
+          Positioned.fill(child: _buildFallbackGrid()),
 
         // 2. СТОЛЫ
         ...currTables.map((mapTable) => _buildTableNode(mapTable)),
@@ -566,10 +601,12 @@ class _TablesScreenState extends State<TablesScreen> {
 
   // === ОБРАБОТЧИКИ КАНВАСА ===
 
-  void _handleAddTap(TapUpDetails details) {
+  Future<void> _handleAddTap(TapUpDetails details) async {
     // details.localPosition даёт координаты ВНУТРИ Stack (ровно относительно картинки/сетки)
-    _addTable(details.localPosition.dx, details.localPosition.dy);
-    setState(() => _mode = 'view'); // Автоматически выходим после добавления
+    await _addTable(details.localPosition.dx, details.localPosition.dy);
+    if (mounted) {
+      setState(() => _mode = 'view'); // Автоматически выходим после добавления
+    }
   }
 
   Widget _buildTableNode(Map<String, dynamic> table) {
@@ -580,10 +617,6 @@ class _TablesScreenState extends State<TablesScreen> {
     
     double x = (table['pos_x'] as num).toDouble();
     double y = (table['pos_y'] as num).toDouble();
-    if (x < 2.0 && y < 2.0) {
-      x = x * 2000;
-      y = y * 2000;
-    }
 
     final isDragging = _draggingId == tId;
 
