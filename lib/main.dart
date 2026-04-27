@@ -64,7 +64,17 @@ void main() async {
     final String tableId = params['table'] ?? '1';
     final bool isDeliveryMode = !params.containsKey('table');
 
-    if (params.containsKey('admin')) {
+    // Обработка ссылки «Иду к столу!» из Telegram
+    if (params.containsKey('accept_call')) {
+      final callId = params['accept_call']!;
+      runApp(MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData.dark().copyWith(
+          scaffoldBackgroundColor: const Color(0xFF121212),
+        ),
+        home: _AcceptCallPage(callId: callId),
+      ));
+    } else if (params.containsKey('admin')) {
       runApp(const admin.AdminApp());
     } else {
       runApp(
@@ -532,7 +542,16 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
 
                 if (SettingsService.telegramNotify) {
                   final waiterChatId = await TelegramService.getWaiterChatId(widget.tableId);
-                  await TelegramService.notifyWaiterCall(tableId: widget.tableId, customChatId: waiterChatId);
+                  // В общий чат — без кнопки
+                  await TelegramService.notifyWaiterCall(tableId: widget.tableId);
+                  // Персонально официанту — с кнопкой «Иду!»
+                  if (waiterChatId != null && waiterChatId.isNotEmpty) {
+                    await TelegramService.notifyWaiterCall(
+                      tableId: widget.tableId,
+                      callId: callId.toString(),
+                      customChatId: waiterChatId,
+                    );
+                  }
                 }
                 
                 if (mounted) {
@@ -2761,17 +2780,23 @@ class _BookingSheetState extends State<_BookingSheet> {
                       .update({'is_booked': true})
                       .eq('id', widget.table['id']);
 
-                  // 3. Уведомляем администратора в Telegram
-                  final msg = '📅 *БРОНЬ СТОЛА!*\n\n'
-                      '🪑 Стол: *№${widget.table['label']}*\n'
-                      '👤 Гость: *${_nameController.text}*\n'
-                      '📞 Телефон: * $fullPhone *\n'
-                      '👥 Гостей: * $guests *\n'
-                      '⏰ Время: * ${_timeController.text} *';
+                  // 3. Уведомляем в Telegram с полной информацией
+                  final preorderInfo = _getPreorderSummary();
+                  final msg = '📅 <b>БРОНЬ СТОЛА!</b>\n\n'
+                      '🪑 Стол: <b>№${widget.table['label']}</b>\n'
+                      '👤 Гость: <b>${_nameController.text}</b>\n'
+                      '📞 Телефон: <b>$fullPhone</b>\n'
+                      '👥 Гостей: <b>$guests</b>\n'
+                      '⏰ Время: <b>${_timeController.text} — ${_endTimeController.text}</b>\n'
+                      '${preorderInfo.isNotEmpty ? '\n🍽 <b>Предзаказ:</b> $preorderInfo' : ''}';
 
                   if (SettingsService.telegramNotify) {
                     final waiterChatId = await TelegramService.getWaiterChatId(widget.table['id'].toString());
-                    await TelegramService.sendMessage(msg, customChatId: waiterChatId);
+                    // Отправляем и общий чат, и персонально официанту
+                    await TelegramService.sendMessage(msg);
+                    if (waiterChatId != null && waiterChatId.isNotEmpty) {
+                      await TelegramService.sendMessage(msg, customChatId: waiterChatId);
+                    }
                   }
 
                   if (mounted) {
@@ -2952,11 +2977,15 @@ class _BookingSheetState extends State<_BookingSheet> {
   String _getPreorderSummary() {
     if (_preorderType == 'onsite') return 'Заказ на месте';
     if (_preorderType == 'dishes') {
-      return 'Блюда: ' + _selectedDishes.map((d) => d.title).join(', ');
+      if (_selectedDishes.isEmpty) return 'Блюда не выбраны';
+      final lines = _selectedDishes.map((d) => '• ${d.title} — ${d.price.toInt()} сом').join('\n');
+      final total = _selectedDishes.fold<double>(0, (sum, d) => sum + d.price);
+      return '\n$lines\n💰 Итого: ${total.toInt()} сом';
     }
     if (_preorderType == 'banquet') {
       final s = _banquetSets.firstWhere((x) => x['id'] == _selectedBanquetId, orElse: () => {});
-      return 'Банкет: ' + (s['title'] ?? 'Не выбран');
+      if (s.isEmpty) return 'Банкет не выбран';
+      return 'Банкет: ${s['title']} (${s['price']} сом/чел × $guests = ${(s['price'] as num) * guests} сом)';
     }
     return '';
   }
@@ -3111,3 +3140,115 @@ Widget _buildSmartImage(String url, {double? width, double? height}) {
   );
 }
 
+/// Мини-страница для официанта — открывается по ссылке из Telegram.
+/// Автоматически принимает вызов и показывает подтверждение.
+class _AcceptCallPage extends StatefulWidget {
+  final String callId;
+  const _AcceptCallPage({required this.callId});
+
+  @override
+  State<_AcceptCallPage> createState() => _AcceptCallPageState();
+}
+
+class _AcceptCallPageState extends State<_AcceptCallPage> {
+  bool _loading = true;
+  bool _success = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _acceptCall();
+  }
+
+  Future<void> _acceptCall() async {
+    try {
+      final ok = await TelegramService.acceptWaiterCall(widget.callId);
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _success = ok;
+          if (!ok) _error = 'Не удалось принять вызов';
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = 'Ошибка: $e';
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (_loading) ...[
+                const CircularProgressIndicator(color: Color(0xFFD4A043)),
+                const SizedBox(height: 24),
+                Text(
+                  'Принимаю вызов...',
+                  style: GoogleFonts.outfit(color: Colors.white54, fontSize: 16),
+                ),
+              ] else if (_success) ...[
+                Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.check_rounded, color: Colors.green, size: 64),
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  'ВЫЗОВ ПРИНЯТ ✅',
+                  style: GoogleFonts.outfit(
+                    color: Colors.white,
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Гость видит, что вы уже идёте!',
+                  style: GoogleFonts.outfit(color: Colors.white54, fontSize: 16),
+                ),
+                const SizedBox(height: 32),
+                Text(
+                  'Можете закрыть эту страницу',
+                  style: GoogleFonts.outfit(color: Colors.white24, fontSize: 14),
+                ),
+              ] else ...[
+                Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.close_rounded, color: Colors.redAccent, size: 64),
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  _error ?? 'Ошибка',
+                  style: GoogleFonts.outfit(color: Colors.redAccent, fontSize: 18),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Возможно, вызов уже был принят',
+                  style: GoogleFonts.outfit(color: Colors.white38, fontSize: 14),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
