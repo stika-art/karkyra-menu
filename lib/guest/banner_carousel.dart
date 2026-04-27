@@ -21,11 +21,32 @@ class _BannerCarouselState extends State<BannerCarousel> {
   void initState() {
     super.initState();
     _pageController = PageController();
-    _startAutoPlay();
+    // Запускаем автопрокрутку только если баннеры уже загружены
+    if (widget.banners.isNotEmpty) {
+      _startAutoPlay();
+    }
+  }
+
+  @override
+  void didUpdateWidget(BannerCarousel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Когда баннеры загрузились (были пустые, стали непустые) — запускаем автопрокрутку
+    if (oldWidget.banners.isEmpty && widget.banners.isNotEmpty) {
+      _currentIndex = 0;
+      _startAutoPlay();
+    }
   }
 
   void _startAutoPlay() {
     _autoPlayTimer?.cancel();
+    
+    // Защита от пустого списка баннеров
+    if (widget.banners.isEmpty) return;
+    
+    // Защита от некорректного индекса
+    if (_currentIndex >= widget.banners.length) {
+      _currentIndex = 0;
+    }
     
     // Если текущий баннер - видео, мы не запускаем таймер здесь, 
     // а ждем события завершения видео от BannerItem.
@@ -255,7 +276,7 @@ class _BannerItemState extends State<BannerItem> {
     final isVideo = widget.banner['type'] == 'video';
 
     return VisibilityDetector(
-      key: Key('banner_${widget.banner['url']}'),
+      key: ValueKey('banner_${widget.banner['url']}_${widget.banner.hashCode}'),
       onVisibilityChanged: (info) {
         if (!mounted || _controller == null || !_isInitialized) return;
         

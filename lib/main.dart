@@ -127,6 +127,7 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
   bool _isMenuLoading = false;
   RealtimeChannel? _waiterCallChannel;
   bool _isWaiterComing = false;
+  bool _isAskingName = false;
 
   @override
   void initState() {
@@ -161,6 +162,8 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
   }
 
   void _askUserName() async {
+    if (_isAskingName) return;
+    
     // Ждем секунду, чтобы CartProvider успел загрузить имя из SharedPreferences
     await Future.delayed(const Duration(milliseconds: 800));
     if (!mounted) return;
@@ -172,12 +175,18 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
 
     if (!mounted) return;
     
+    setState(() => _isAskingName = true);
+    
     final controller = TextEditingController();
+    
+    if (!mounted) return;
+
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => WillPopScope(
-        onWillPop: () async => false,
+      builder: (ctx) => PopScope(
+        canPop: false,
+        onPopInvoked: (didPop) => false,
         child: Dialog(
           backgroundColor: const Color(0xFF1E1E1E),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
@@ -237,6 +246,9 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
                       if (name.length >= 2) {
                         cart.setUserName(name);
                         Navigator.pop(ctx);
+                        if (mounted) {
+                          setState(() => _isAskingName = false);
+                        }
                       }
                     },
                     style: ElevatedButton.styleFrom(
@@ -257,7 +269,12 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
           ),
         ),
       ),
-    );
+    ).then((_) {
+      controller.dispose();
+      if (mounted) {
+        setState(() => _isAskingName = false);
+      }
+    });
   }
 
   void _onCategorySelected(int index, String categoryId) {
