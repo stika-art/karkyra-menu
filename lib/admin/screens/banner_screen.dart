@@ -244,7 +244,12 @@ class _BannerScreenState extends State<BannerScreen> {
     }
 
     try {
-      await Supabase.instance.client.from('banners').delete().eq('id', id);
+      final List deleted = await Supabase.instance.client.from('banners').delete().eq('id', id).select();
+      
+      if (deleted.isEmpty) {
+        throw Exception('Нет прав на удаление. Проверьте RLS политики (нужна политика на DELETE) в Supabase.');
+      }
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Баннер успешно удален'), backgroundColor: Colors.green),
@@ -253,7 +258,7 @@ class _BannerScreenState extends State<BannerScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка удаления из БД (проверьте права/RLS): $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Ошибка удаления из БД: $e'), backgroundColor: Colors.red),
         );
       }
     }
