@@ -11,6 +11,7 @@ class WaitersScreen extends StatefulWidget {
 
 class _WaitersScreenState extends State<WaitersScreen> {
   List<Map<String, dynamic>> _waiters = [];
+  List<Map<String, dynamic>> _tables = [];
   bool _loading = true;
 
   @override
@@ -26,8 +27,10 @@ class _WaitersScreenState extends State<WaitersScreen> {
           .from('waiters')
           .select()
           .order('name');
+      final tRes = await Supabase.instance.client.from('restaurant_tables').select().order('label');
       setState(() {
         _waiters = List<Map<String, dynamic>>.from(res);
+        _tables = List<Map<String, dynamic>>.from(tRes);
         _loading = false;
       });
     } catch (e) {
@@ -98,6 +101,85 @@ class _WaitersScreenState extends State<WaitersScreen> {
     );
   }
 
+  void _showAssignTables(Map<String, dynamic> waiter) {
+    final wId = waiter['id'];
+    List<String> selectedTableIds = _tables
+        .where((t) => t['waiter_id'] == wId)
+        .map((t) => t['id'] as String)
+        .toList();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) {
+          return AlertDialog(
+            backgroundColor: const Color(0xFF1E1E1E),
+            title: Text('Столы официанта: ${waiter['name']}', style: GoogleFonts.outfit(color: Colors.white)),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: _tables.length,
+                itemBuilder: (context, index) {
+                  final t = _tables[index];
+                  final tId = t['id'];
+                  final isSelected = selectedTableIds.contains(tId);
+                  final otherWaiter = t['waiter_id'] != null && t['waiter_id'] != wId;
+                  
+                  String label = t['label'] ?? 'Стол';
+                  if (otherWaiter) {
+                    final otherName = _waiters.firstWhere((w) => w['id'] == t['waiter_id'], orElse: () => {'name': 'другой'})['name'];
+                    label += ' (закреплен: $otherName)';
+                  }
+
+                  return CheckboxListTile(
+                    title: Text(label, style: const TextStyle(color: Colors.white)),
+                    value: isSelected,
+                    activeColor: const Color(0xFFD4A043),
+                    checkColor: Colors.black,
+                    onChanged: (val) {
+                      setD(() {
+                        if (val == true) {
+                          selectedTableIds.add(tId);
+                        } else {
+                          selectedTableIds.remove(tId);
+                        }
+                      });
+                    },
+                  );
+                },
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Отмена', style: TextStyle(color: Colors.white38))),
+              ElevatedButton(
+                onPressed: () async {
+                  Navigator.pop(ctx);
+                  setState(() => _loading = true);
+                  // First, unassign all tables currently assigned to this waiter
+                  await Supabase.instance.client
+                      .from('restaurant_tables')
+                      .update({'waiter_id': null})
+                      .eq('waiter_id', wId);
+                  // Then, assign selected ones
+                  for (final tid in selectedTableIds) {
+                    await Supabase.instance.client
+                        .from('restaurant_tables')
+                        .update({'waiter_id': wId})
+                        .eq('id', tid);
+                  }
+                  _load();
+                },
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFD4A043)),
+                child: const Text('Сохранить', style: TextStyle(color: Colors.black)),
+              ),
+            ],
+          );
+        }
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -135,10 +217,21 @@ class _WaitersScreenState extends State<WaitersScreen> {
                           child: const Icon(Icons.person, color: Color(0xFFD4A043)),
                         ),
                         title: Text(w['name'], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                        subtitle: Text('ID: ${w['telegram_chat_id'] ?? 'Не указан'}', style: const TextStyle(color: Colors.white38)),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('ID: ${w['telegram_chat_id'] ?? 'Не указан'}', style: const TextStyle(color: Colors.white38)),
+                            Text('Столов: ${_tables.where((t) => t['waiter_id'] == w['id']).length}', style: const TextStyle(color: Color(0xFFD4A043), fontSize: 12)),
+                          ],
+                        ),
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
+                            TextButton.icon(
+                              onPressed: () => _showAssignTables(w), 
+                              icon: const Icon(Icons.table_restaurant_rounded, size: 16, color: Color(0xFFD4A043)),
+                              label: const Text('Столы', style: TextStyle(color: Color(0xFFD4A043))),
+                            ),
                             IconButton(onPressed: () => _showAddWaiter(w), icon: const Icon(Icons.edit_rounded, color: Colors.white38)),
                             IconButton(
                               onPressed: () async {

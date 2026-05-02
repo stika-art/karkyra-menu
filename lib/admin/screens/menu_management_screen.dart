@@ -771,7 +771,7 @@ class _DishesListScreenState extends State<DishesListScreen> {
                                   style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
                                 if (d['weight'] != null)
                                   Text(d['weight'], style: GoogleFonts.outfit(color: Colors.white38, fontSize: 12)),
-                                Text('${(d['price'] ?? 0).toStringAsFixed(0)} ₽',
+                                Text('${(d['price'] ?? 0).toStringAsFixed(0)} сом',
                                   style: GoogleFonts.outfit(color: const Color(0xFFD4A043), fontWeight: FontWeight.bold)),
                                 Wrap(spacing: 4, children: [
                                   if (d['is_top'] == true) _tag('Топ', const Color(0xFFFF8C00)),

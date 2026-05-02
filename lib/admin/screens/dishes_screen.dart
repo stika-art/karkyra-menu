@@ -90,7 +90,7 @@ class _DishesScreenState extends State<DishesScreen> {
                 Text(item.title,
                   style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
                 const SizedBox(height: 4),
-                Text('${item.price.toInt()} ₽',
+                Text('${item.price.toInt()} сом',
                   style: GoogleFonts.outfit(color: const Color(0xFFD4A043), fontWeight: FontWeight.w600)),
                 const SizedBox(height: 4),
                 Row(
@@ -210,7 +210,7 @@ class _DishesScreenState extends State<DishesScreen> {
                         _dialogField(titleCtrl, 'Название блюда *'),
                         const SizedBox(height: 10),
                         Row(children: [
-                          Expanded(child: _dialogField(priceCtrl, 'Цена ₽ *', type: TextInputType.number)),
+                          Expanded(child: _dialogField(priceCtrl, 'Цена сом *', type: TextInputType.number)),
                           const SizedBox(width: 10),
                           Expanded(child: _dialogField(weightCtrl, 'Выход (г)')),
                         ]),

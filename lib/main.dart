@@ -1027,7 +1027,7 @@ class _MenuItemCard extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      '${item.price.toInt()} ₽',
+                      '${item.price.toInt()} сом',
                       style: const TextStyle(
                         fontWeight: FontWeight.w900,
                         fontSize: 18,

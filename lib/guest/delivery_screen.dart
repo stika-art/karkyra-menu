@@ -248,7 +248,7 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
                               children: [
                                 Text(menuItem.title, style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 15)),
                                 const SizedBox(height: 6),
-                                Text('${itemTotal.toInt()} ₽', style: GoogleFonts.outfit(color: const Color(0xFFD4A043), fontWeight: FontWeight.bold, fontSize: 16)),
+                                Text('${itemTotal.toInt()} сом', style: GoogleFonts.outfit(color: const Color(0xFFD4A043), fontWeight: FontWeight.bold, fontSize: 16)),
                               ],
                             ),
                           ),
@@ -346,7 +346,7 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
                                     const SizedBox(width: 12),
                                     Text('•', style: TextStyle(color: Colors.black.withOpacity(0.5))),
                                     const SizedBox(width: 12),
-                                    Text('${grandTotal.toInt()} ₽', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 16)),
+                                    Text('${grandTotal.toInt()} сом', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 16)),
                                   ],
                                 ),
                           ),

@@ -31,7 +31,7 @@ class _PizzaConstructorScreenState extends State<PizzaConstructorScreen> {
     if (leftHalf == null && rightHalf == null) return 0;
     if (leftHalf != null && rightHalf == null) return leftHalf!.price;
     if (leftHalf == null && rightHalf != null) return rightHalf!.price;
-    // Логика: цена самой дорогой половины + 50 рублей за сборку (условно)
+    // Логика: цена самой дорогой половины + 50 сом за сборку (условно)
     return (leftHalf!.price > rightHalf!.price ? leftHalf!.price : rightHalf!.price) + 50;
   }
 
@@ -242,7 +242,7 @@ class _PizzaConstructorScreenState extends State<PizzaConstructorScreen> {
                 style: GoogleFonts.outfit(color: Colors.white54, fontSize: 10, fontWeight: FontWeight.bold),
               ),
               Text(
-                '${totalPrice.toInt()} ₽',
+                '${totalPrice.toInt()} сом',
                 style: GoogleFonts.outfit(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900),
               ),
             ],
@@ -302,7 +302,7 @@ class _PizzaConstructorScreenState extends State<PizzaConstructorScreen> {
                         child: Image.network(pizza.images[0], width: 50, height: 50, fit: BoxFit.cover),
                       ),
                       title: Text(pizza.title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                      subtitle: Text('${pizza.price.toInt()} ₽', style: const TextStyle(color: Colors.white54)),
+                      subtitle: Text('${pizza.price.toInt()} сом', style: const TextStyle(color: Colors.white54)),
                       onTap: () {
                         setState(() {
                           if (isLeft) {
