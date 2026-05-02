@@ -210,38 +210,82 @@ class _WaitersScreenState extends State<WaitersScreen> {
                     final w = _waiters[i];
                     return Container(
                       margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(color: const Color(0xFF1E1E1E), borderRadius: BorderRadius.circular(16)),
-                      child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: const Color(0xFFD4A043).withOpacity(0.1),
-                          child: const Icon(Icons.person, color: Color(0xFFD4A043)),
-                        ),
-                        title: Text(w['name'], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('ID: ${w['telegram_chat_id'] ?? 'Не указан'}', style: const TextStyle(color: Colors.white38)),
-                            Text('Столов: ${_tables.where((t) => t['waiter_id'] == w['id']).length}', style: const TextStyle(color: Color(0xFFD4A043), fontSize: 12)),
-                          ],
-                        ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            TextButton.icon(
-                              onPressed: () => _showAssignTables(w), 
-                              icon: const Icon(Icons.table_restaurant_rounded, size: 16, color: Color(0xFFD4A043)),
-                              label: const Text('Столы', style: TextStyle(color: Color(0xFFD4A043))),
-                            ),
-                            IconButton(onPressed: () => _showAddWaiter(w), icon: const Icon(Icons.edit_rounded, color: Colors.white38)),
-                            IconButton(
-                              onPressed: () async {
-                                await Supabase.instance.client.from('waiters').delete().eq('id', w['id']);
-                                _load();
-                              },
-                              icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
-                            ),
-                          ],
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              CircleAvatar(
+                                radius: 24,
+                                backgroundColor: const Color(0xFFD4A043).withOpacity(0.1),
+                                child: const Icon(Icons.person, color: Color(0xFFD4A043)),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(w['name'], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                                    const SizedBox(height: 4),
+                                    Text('ID: ${w['telegram_chat_id'] ?? 'Не указан'}', style: const TextStyle(color: Colors.white38, fontSize: 13)),
+                                    const SizedBox(height: 2),
+                                    Text('Столов: ${_tables.where((t) => t['waiter_id'] == w['id']).length}', style: const TextStyle(color: Color(0xFFD4A043), fontSize: 13)),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const Divider(color: Colors.white12, height: 24),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: () => _showAssignTables(w), 
+                                  icon: const Icon(Icons.table_restaurant_rounded, size: 18, color: Color(0xFFD4A043)),
+                                  label: const Text('Столы', style: TextStyle(color: Color(0xFFD4A043))),
+                                  style: OutlinedButton.styleFrom(
+                                    side: const BorderSide(color: Color(0xFFD4A043)),
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Container(
+                                decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(10)),
+                                child: IconButton(onPressed: () => _showAddWaiter(w), icon: const Icon(Icons.edit_rounded, color: Colors.white70)),
+                              ),
+                              const SizedBox(width: 8),
+                              Container(
+                                decoration: BoxDecoration(color: Colors.redAccent.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+                                child: IconButton(
+                                  onPressed: () async {
+                                    // Show confirmation before deleting
+                                    final confirm = await showDialog<bool>(
+                                      context: context,
+                                      builder: (ctx) => AlertDialog(
+                                        backgroundColor: const Color(0xFF1E1E1E),
+                                        title: const Text('Удалить официанта?', style: TextStyle(color: Colors.white)),
+                                        content: Text('Вы уверены, что хотите удалить ${w['name']}? Это действие нельзя отменить.', style: const TextStyle(color: Colors.white70)),
+                                        actions: [
+                                          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Отмена', style: TextStyle(color: Colors.white38))),
+                                          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Удалить', style: TextStyle(color: Colors.redAccent))),
+                                        ],
+                                      )
+                                    );
+                                    if (confirm == true) {
+                                      await Supabase.instance.client.from('waiters').delete().eq('id', w['id']);
+                                      _load();
+                                    }
+                                  },
+                                  icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
                     );
                   },
