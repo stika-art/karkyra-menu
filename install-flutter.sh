@@ -23,6 +23,6 @@ echo "Running pub get..."
 flutter pub get
 
 echo "Building Flutter Web..."
-flutter build web --release --base-href /
+flutter build web --release --base-href / --obfuscate --split-debug-info=./build/debug_info
 
 echo "Build finished successfully!"
