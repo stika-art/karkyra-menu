@@ -221,7 +221,7 @@ class _BannerScreenState extends State<BannerScreen> {
   }
 
   Future<void> _delete(Map<String, dynamic> banner) async {
-    final String id = banner['id'];
+    final id = banner['id'];
     final String url = banner['url'] ?? '';
     
     // Пытаемся удалить файл из хранилища, если это наш файл Supabase
@@ -237,31 +237,42 @@ class _BannerScreenState extends State<BannerScreen> {
           final decodedPath = Uri.decodeComponent(storagePath);
           
           await Supabase.instance.client.storage.from('media').remove([decodedPath]);
-          
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Файл удален из Storage: $decodedPath'), backgroundColor: Colors.blue),
-            );
-          }
-          debugPrint('SUCCESS: Deleted from storage: $decodedPath');
         }
       } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Ошибка Storage: $e'), backgroundColor: Colors.orange),
-          );
-        }
         debugPrint('ERROR: Failed to delete from storage: $e');
       }
     }
 
-    await Supabase.instance.client.from('banners').delete().eq('id', id);
+    try {
+      await Supabase.instance.client.from('banners').delete().eq('id', id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Баннер успешно удален'), backgroundColor: Colors.green),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка удаления из БД (проверьте права/RLS): $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+    
+    // Всегда перезагружаем список после попытки удаления
     _load();
   }
 
   Future<void> _toggleActive(String id, bool currentStatus) async {
-    await Supabase.instance.client.from('banners').update({'is_active': !currentStatus}).eq('id', id);
-    _load();
+    try {
+      await Supabase.instance.client.from('banners').update({'is_active': !currentStatus}).eq('id', id);
+      _load();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка обновления статуса: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
   }
 
   @override
