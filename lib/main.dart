@@ -74,6 +74,15 @@ void main() async {
         ),
         home: _AcceptCallPage(callId: callId),
       ));
+    } else if (params.containsKey('accept_order')) {
+      final tableId = params['accept_order']!;
+      runApp(MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData.dark().copyWith(
+          scaffoldBackgroundColor: const Color(0xFF121212),
+        ),
+        home: _AcceptOrderPage(tableId: tableId),
+      ));
     } else if (params.containsKey('admin')) {
       runApp(const admin.AdminApp());
     } else {
@@ -3242,6 +3251,119 @@ class _AcceptCallPageState extends State<_AcceptCallPage> {
                 const SizedBox(height: 16),
                 Text(
                   'Возможно, вызов уже был принят',
+                  style: GoogleFonts.outfit(color: Colors.white38, fontSize: 14),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Мини-страница для официанта — открывается по ссылке из Telegram.
+/// Автоматически принимает заказ и показывает подтверждение.
+class _AcceptOrderPage extends StatefulWidget {
+  final String tableId;
+  const _AcceptOrderPage({required this.tableId});
+
+  @override
+  State<_AcceptOrderPage> createState() => _AcceptOrderPageState();
+}
+
+class _AcceptOrderPageState extends State<_AcceptOrderPage> {
+  bool _loading = true;
+  bool _success = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _acceptOrder();
+  }
+
+  Future<void> _acceptOrder() async {
+    try {
+      final ok = await TelegramService.acceptTableOrder(widget.tableId);
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _success = ok;
+          if (!ok) _error = 'Не удалось принять заказ';
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = 'Ошибка: $e';
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (_loading) ...[
+                const CircularProgressIndicator(color: Color(0xFFD4A043)),
+                const SizedBox(height: 24),
+                Text(
+                  'Принимаю заказ...',
+                  style: GoogleFonts.outfit(color: Colors.white54, fontSize: 16),
+                ),
+              ] else if (_success) ...[
+                Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.check_rounded, color: Colors.green, size: 64),
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  'ЗАКАЗ ПРИНЯТ ✅',
+                  style: GoogleFonts.outfit(
+                    color: Colors.white,
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Гости увидят, что их заказ готовится!',
+                  style: GoogleFonts.outfit(color: Colors.white54, fontSize: 16),
+                ),
+                const SizedBox(height: 32),
+                Text(
+                  'Можете закрыть эту страницу',
+                  style: GoogleFonts.outfit(color: Colors.white24, fontSize: 14),
+                ),
+              ] else ...[
+                Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.close_rounded, color: Colors.redAccent, size: 64),
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  _error ?? 'Ошибка',
+                  style: GoogleFonts.outfit(color: Colors.redAccent, fontSize: 18),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Возможно, заказ уже был принят',
                   style: GoogleFonts.outfit(color: Colors.white38, fontSize: 14),
                 ),
               ],

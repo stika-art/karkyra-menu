@@ -98,6 +98,7 @@ class TelegramService {
     required List<Map<String, dynamic>> items,
     required double total,
     String? customChatId,
+    bool withAcceptButton = false,
   }) async {
     final itemLines = items.map((it) => '  • ${it['title']} x${it['qty']} — ${it['price']} сом').join('\n');
     final message = '''
@@ -108,7 +109,20 @@ $itemLines
 
 💰 <b>Итого: ${total.toStringAsFixed(0)} сом</b>
 ''';
-    await sendMessage(message, customChatId: customChatId);
+    
+    if (withAcceptButton) {
+      final baseUrl = Uri.base.origin;
+      final acceptUrl = '$baseUrl/?accept_order=$tableId';
+
+      await sendMessageWithButton(
+        text: message,
+        buttonText: '✅ Принять заказ стола №$tableId',
+        buttonUrl: acceptUrl,
+        customChatId: customChatId,
+      );
+    } else {
+      await sendMessage(message, customChatId: customChatId);
+    }
   }
 
   static Future<void> notifyDeliveryOrder({
@@ -172,6 +186,22 @@ $itemLines
       return true;
     } catch (e) {
       print('Accept call error: $e');
+      return false;
+    }
+  }
+
+  /// Принять заказ (обновить статус в базе)
+  static Future<bool> acceptTableOrder(String tableId) async {
+    try {
+      final res = await Supabase.instance.client
+          .from('orders_new')
+          .update({'status': 'processing'})
+          .eq('table_id', tableId)
+          .inFilter('status', ['confirmed', 'ordering'])
+          .select();
+      return res.isNotEmpty;
+    } catch (e) {
+      print('Accept order error: $e');
       return false;
     }
   }
