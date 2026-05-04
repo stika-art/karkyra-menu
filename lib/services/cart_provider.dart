@@ -242,6 +242,7 @@ class CartProvider with ChangeNotifier {
             items: itemsForTelegram, 
             total: total,
             customChatId: waiterChatId,
+            withAcceptButton: true,
           );
         }
       }
