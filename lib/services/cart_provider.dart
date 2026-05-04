@@ -231,6 +231,7 @@ class CartProvider with ChangeNotifier {
           tableId: tableId, 
           items: itemsForTelegram, 
           total: total,
+          withAcceptButton: true,
         );
 
         // Дополнительно отправляем лично официанту, если он закреплён
