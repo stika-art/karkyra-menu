@@ -17,16 +17,52 @@ class _AdminAppState extends State<AdminApp> {
   bool _error = false;
   bool _checkingPassword = false;
 
+  @override
+  void initState() {
+    super.initState();
+    _checkSession();
+  }
+
+  void _checkSession() {
+    final session = Supabase.instance.client.auth.currentSession;
+    if (session != null) {
+      setState(() {
+        _authenticated = true;
+      });
+    }
+  }
+
   Future<void> _login() async {
-    setState(() => _checkingPassword = true);
-    // Загружаем актуальный пароль из базы
-    await SettingsService.load();
-    final correct = _passwordController.text == SettingsService.adminPassword;
+    if (_passwordController.text.isEmpty) return;
+
     setState(() {
-      _authenticated = correct;
-      _error = !correct;
-      _checkingPassword = false;
+      _checkingPassword = true;
+      _error = false;
     });
+
+    try {
+      // Пытаемся войти через Supabase Auth
+      // ВАЖНО: Вы должны создать пользователя admin@karkyra.com в Supabase Dashboard
+      await Supabase.instance.client.auth.signInWithPassword(
+        email: 'admin@karkyra.com',
+        password: _passwordController.text,
+      );
+
+      if (mounted) {
+        setState(() {
+          _authenticated = true;
+          _checkingPassword = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _authenticated = false;
+          _error = true;
+          _checkingPassword = false;
+        });
+      }
+    }
   }
 
   @override
@@ -103,9 +139,14 @@ class _AdminAppState extends State<AdminApp> {
                           ? const BorderSide(color: Colors.redAccent)
                           : BorderSide.none,
                     ),
-                    errorText: _error ? 'Неверный пароль' : null,
+                    errorText: _error ? 'Неверный пароль или ошибка доступа' : null,
                   ),
                 ),
+                if (_checkingPassword)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 16),
+                    child: CircularProgressIndicator(),
+                  ),
                 const SizedBox(height: 16),
                 SizedBox(
                   width: double.infinity,
