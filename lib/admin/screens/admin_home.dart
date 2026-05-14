@@ -8,6 +8,7 @@ import 'banner_screen.dart';
 import 'settings_screen.dart';
 import 'banquet_screen.dart';
 import 'waiters_screen.dart';
+import 'schedule_screen.dart';
 
 class AdminHome extends StatefulWidget {
   const AdminHome({super.key});
@@ -27,6 +28,7 @@ class _AdminHomeState extends State<AdminHome> {
     _NavItem(icon: Icons.play_circle_outline_rounded, label: 'Баннер'),
     _NavItem(icon: Icons.celebration_rounded, label: 'Банкеты'),
     _NavItem(icon: Icons.people_alt_rounded, label: 'Официанты'),
+    _NavItem(icon: Icons.schedule_rounded, label: 'График'),
     _NavItem(icon: Icons.settings_rounded, label: 'Настройки'),
   ];
 
@@ -38,6 +40,7 @@ class _AdminHomeState extends State<AdminHome> {
     const BannerScreen(),
     const BanquetScreen(),
     const WaitersScreen(),
+    const ScheduleScreen(),
     const SettingsScreen(),
   ];
 
@@ -67,7 +70,7 @@ class _AdminHomeState extends State<AdminHome> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('КАРКЫРА', style: GoogleFonts.outfit(
+                    Text('МУРАС', style: GoogleFonts.outfit(
                       color: const Color(0xFFD4A043),
                       fontSize: 18,
                       fontWeight: FontWeight.w900,

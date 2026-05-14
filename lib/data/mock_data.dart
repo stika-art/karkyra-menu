@@ -62,7 +62,7 @@ final List<MenuItem> menuItems = [
   MenuItem(
     id: '3',
     categoryId: '3',
-    title: 'Завтрак "Каркыра"',
+    title: 'Завтрак "Мурас"',
     description: 'Домашние яйца, свежий каймак, горный мед и горячая лепешка.',
     price: 290.0,
     weight: '320 г',

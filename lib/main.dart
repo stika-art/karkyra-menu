@@ -111,7 +111,7 @@ class MenuApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Каркыра — Ресторан',
+      title: 'Мурас — Ресторан',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       scrollBehavior: AppScrollBehavior(),
@@ -472,7 +472,7 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
             children: [
               const SizedBox(width: 24),
               Text(
-                'КАРКЫРА',
+                'МУРАС',
                 style: GoogleFonts.forum(
                   color: Colors.white,
                   fontSize: 28,
@@ -501,6 +501,23 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
               fontWeight: FontWeight.w500,
               letterSpacing: 4.0,
             ),
+          ),
+          const SizedBox(height: 4),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.access_time_rounded, color: Color(0xFFD4A043), size: 10),
+              const SizedBox(width: 4),
+              Text(
+                'СЕГОДНЯ: ${SettingsService.getTodaySchedule()}',
+                style: GoogleFonts.outfit(
+                  color: Colors.white54,
+                  fontSize: 9,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.0,
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -2676,20 +2693,25 @@ class _BookingSheetState extends State<_BookingSheet> {
                 filled: true,
                 fillColor: Colors.grey.shade50,
                 suffixIcon: IconButton(
-                  icon: const Icon(Icons.access_time_rounded, color: Colors.black),
+                  icon: const Icon(Icons.circle, color: Colors.black),
                   onPressed: () async {
                     final picked = await showTimePicker(
                       context: context,
                       initialTime: TimeOfDay.now(),
-                      builder: (context, child) => Theme(
-                        data: Theme.of(context).copyWith(
-                          colorScheme: const ColorScheme.light(primary: Colors.black),
+                      builder: (context, child) => MediaQuery(
+                        data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
+                        child: Theme(
+                          data: Theme.of(context).copyWith(
+                            colorScheme: const ColorScheme.light(primary: Colors.black),
+                          ),
+                          child: child!,
                         ),
-                        child: child!,
                       ),
                     );
                     if (picked != null) {
-                      setState(() => _timeController.text = picked.format(context));
+                      final hh = picked.hour.toString().padLeft(2, '0');
+                      final mm = picked.minute.toString().padLeft(2, '0');
+                      setState(() => _timeController.text = '$hh:$mm');
                     }
                   },
                 ),
@@ -2708,20 +2730,25 @@ class _BookingSheetState extends State<_BookingSheet> {
                 filled: true,
                 fillColor: Colors.grey.shade50,
                 suffixIcon: IconButton(
-                  icon: const Icon(Icons.access_time_rounded, color: Colors.black),
+                  icon: const Icon(Icons.circle, color: Colors.black),
                   onPressed: () async {
                     final picked = await showTimePicker(
                       context: context,
                       initialTime: const TimeOfDay(hour: 21, minute: 0),
-                      builder: (context, child) => Theme(
-                        data: Theme.of(context).copyWith(
-                          colorScheme: const ColorScheme.light(primary: Colors.black),
+                      builder: (context, child) => MediaQuery(
+                        data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
+                        child: Theme(
+                          data: Theme.of(context).copyWith(
+                            colorScheme: const ColorScheme.light(primary: Colors.black),
+                          ),
+                          child: child!,
                         ),
-                        child: child!,
                       ),
                     );
                     if (picked != null) {
-                      setState(() => _endTimeController.text = picked.format(context));
+                      final hh = picked.hour.toString().padLeft(2, '0');
+                      final mm = picked.minute.toString().padLeft(2, '0');
+                      setState(() => _endTimeController.text = '$hh:$mm');
                     }
                   },
                 ),
