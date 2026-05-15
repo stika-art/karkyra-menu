@@ -70,7 +70,7 @@ class _AdminHomeState extends State<AdminHome> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('МУРАС', style: GoogleFonts.outfit(
+                    Text('КАРКЫРА', style: GoogleFonts.outfit(
                       color: const Color(0xFFD4A043),
                       fontSize: 18,
                       fontWeight: FontWeight.w900,

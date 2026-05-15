@@ -13,6 +13,8 @@
   <link rel="icon" type="image/png" href="favicon.png?v=2"/>
   <link rel="shortcut icon" href="favicon.png?v=2" type="image/x-icon">
 
+  <link rel="manifest" href="manifest.json">
+
   <script>
     (function() {
       const isAdmin = new URLSearchParams(window.location.search).has('admin');
@@ -22,29 +24,16 @@
         meta.content = '#141414';
         document.head.appendChild(meta);
 
-        document.title = 'Мурас — Админ';
+        document.title = 'Каркыра — Админ';
       } else {
-        document.title = 'Мурас — Ресто-Чайхана';
+        document.title = 'Каркыра — Ресто-Чайхана';
       }
     })();
   </script>
 
-
-
   <style>
     body { background-color: #141414; margin: 0; padding: 0; overflow: hidden; }
   </style>
-  <script>
-    // Принудительное удаление старых Service Workers, которые могут "травить" кэш
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistrations().then(function(registrations) {
-        for(let registration of registrations) {
-          registration.unregister();
-          console.log('Old ServiceWorker unregistered');
-        }
-      });
-    }
-  </script>
 </head>
 <body>
   <script src="flutter_bootstrap.js" async></script>

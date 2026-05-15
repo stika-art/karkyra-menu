@@ -111,7 +111,7 @@ class MenuApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Мурас — Ресторан',
+      title: 'Каркыра — Ресторан',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       scrollBehavior: AppScrollBehavior(),
@@ -472,7 +472,7 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
             children: [
               const SizedBox(width: 24),
               Text(
-                'МУРАС',
+                'КАРКЫРА',
                 style: GoogleFonts.forum(
                   color: Colors.white,
                   fontSize: 28,
