@@ -283,6 +283,19 @@ class CartProvider with ChangeNotifier {
     }
   }
 
+  Future<void> removeParticipant(String deviceIdToRemove) async {
+    try {
+      await Supabase.instance.client
+          .from('table_participants')
+          .delete()
+          .eq('table_id', tableId)
+          .eq('device_id', deviceIdToRemove);
+    } catch (e) {
+      _showError("Ошибка удаления гостя");
+    }
+  }
+
+
   Future<void> clearTable() async {
     _deletedIds.clear();
     _items.clear();

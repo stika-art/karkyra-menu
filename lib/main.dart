@@ -1894,7 +1894,83 @@ class _SharedCartScreenState extends State<SharedCartScreen> {
       ),
       child: SafeArea(
         child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (totalParticipants > 1 && hasUnconfirmedItems) ...[
+              Text(
+                "ГОСТИ ЗА СТОЛОМ",
+                style: GoogleFonts.outfit(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w900,
+                  color: Colors.black38,
+                  letterSpacing: 1.2,
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 38,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: totalParticipants,
+                  physics: const BouncingScrollPhysics(),
+                  itemBuilder: (context, idx) {
+                    final p = cart.participants[idx];
+                    final isMe = p['device_id'] == cart.deviceId;
+                    final isReady = p['is_ready'] == true;
+                    final name = isMe ? "Вы" : (p['user_name'] ?? "Гость ${p['guest_number'] ?? idx + 1}");
+                    
+                    return Container(
+                      margin: const EdgeInsets.only(right: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: isReady 
+                            ? const Color(0xFF4CAF50).withOpacity(0.08) 
+                            : const Color(0xFFF44336).withOpacity(0.04),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isReady 
+                              ? const Color(0xFF4CAF50).withOpacity(0.2) 
+                              : const Color(0xFFF44336).withOpacity(0.12),
+                          width: 1,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            isReady ? Icons.check_circle_rounded : Icons.pending_rounded,
+                            size: 13,
+                            color: isReady ? const Color(0xFF4CAF50) : const Color(0xFFF44336),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            name,
+                            style: GoogleFonts.outfit(
+                              fontSize: 12,
+                              fontWeight: isMe ? FontWeight.bold : FontWeight.w500,
+                              color: isReady ? const Color(0xFF2E7D32) : const Color(0xFFC62828),
+                            ),
+                          ),
+                          if (!isMe) ...[
+                            const SizedBox(width: 6),
+                            GestureDetector(
+                              onTap: () => _showRemoveParticipantDialog(context, cart, p),
+                              child: const Icon(
+                                Icons.cancel_rounded,
+                                size: 14,
+                                color: Colors.grey,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -1929,7 +2005,173 @@ class _SharedCartScreenState extends State<SharedCartScreen> {
                 style: GoogleFonts.outfit(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 16),
               ),
             ),
+            if (cart.isReady && totalParticipants > 1 && readyCount < totalParticipants && hasUnconfirmedItems) ...[
+              const SizedBox(height: 12),
+              OutlinedButton(
+                onPressed: () => _showForceSendConfirmDialog(context, cart),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 50),
+                  side: const BorderSide(color: Color(0xFFD4A043), width: 1.5),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                ),
+                child: Text(
+                  "ОТПРАВИТЬ ЗАКАЗ СЕЙЧАС",
+                  style: GoogleFonts.outfit(
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFFD4A043),
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+            ],
           ],
+        ),
+      ),
+    );
+  }
+
+  void _showRemoveParticipantDialog(BuildContext context, CartProvider cart, Map<String, dynamic> participant) {
+    final name = participant['user_name'] ?? "Гость ${participant['guest_number']}";
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.redAccent.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.person_remove_rounded, color: Colors.redAccent, size: 32),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                "УДАЛИТЬ ГОСТЯ?",
+                style: GoogleFonts.outfit(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 2,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                "Вы действительно хотите удалить гостя '$name'?\nЭто поможет, если он ушел или вкладка зависла.",
+                textAlign: TextAlign.center,
+                style: GoogleFonts.outfit(color: Colors.white70, fontSize: 13, height: 1.4),
+              ),
+              const SizedBox(height: 28),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      child: Text("ОТМЕНА", style: GoogleFonts.outfit(color: Colors.white54, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () {
+                        cart.removeParticipant(participant['device_id']);
+                        Navigator.pop(ctx);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.redAccent,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        elevation: 0,
+                      ),
+                      child: Text("УДАЛИТЬ", style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showForceSendConfirmDialog(BuildContext context, CartProvider cart) {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFD4A043).withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.send_rounded, color: Color(0xFFD4A043), size: 32),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                "ОТПРАВИТЬ СЕЙЧАС?",
+                style: GoogleFonts.outfit(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 2,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                "Некоторые гости ещё не нажали 'Готово'. Вы действительно хотите отправить заказ на кухню прямо сейчас?",
+                textAlign: TextAlign.center,
+                style: GoogleFonts.outfit(color: Colors.white70, fontSize: 13, height: 1.4),
+              ),
+              const SizedBox(height: 28),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      child: Text("ОТМЕНА", style: GoogleFonts.outfit(color: Colors.white54, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () {
+                        cart.confirmOrder();
+                        Navigator.pop(ctx);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFD4A043),
+                        foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        elevation: 0,
+                      ),
+                      child: Text("ОТПРАВИТЬ", style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
