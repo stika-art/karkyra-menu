@@ -24,6 +24,25 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:js' as js;
 import 'guest/banner_carousel.dart';
 
+Future<String?> scanQrCodeFromCameraGlobal() {
+  final completer = Completer<String?>();
+  if (kIsWeb) {
+    try {
+      js.context.callMethod('scanQrCode', [
+        js.allowInterop((result) {
+          completer.complete(result?.toString());
+        })
+      ]);
+    } catch (e) {
+      debugPrint('JS Scanner failed: $e');
+      completer.complete(null);
+    }
+  } else {
+    completer.complete(null);
+  }
+  return completer.future;
+}
+
 List<Category> get categories {
   // Получаем список из базы и убираем оттуда категорию с id '0', если она там есть
   final dbCats = MenuDataService.categories.where((c) => c.id != '0').toList();
@@ -193,27 +212,10 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
     }
   }
 
-  Future<String?> _scanQrCodeFromCamera() {
-    final completer = Completer<String?>();
-    if (kIsWeb) {
-      try {
-        js.context.callMethod('scanQrCode', [
-          js.allowInterop((result) {
-            completer.complete(result?.toString());
-          })
-        ]);
-      } catch (e) {
-        debugPrint('JS Scanner failed: $e');
-        completer.complete(null);
-      }
-    } else {
-      completer.complete(null);
-    }
-    return completer.future;
-  }
+
 
   void _startBuiltInScan() async {
-    final scannedResult = await _scanQrCodeFromCamera();
+    final scannedResult = await scanQrCodeFromCameraGlobal();
     if (scannedResult != null && scannedResult.isNotEmpty) {
       try {
         final uri = Uri.parse(scannedResult);
@@ -472,19 +474,7 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
     
     return Scaffold(
       backgroundColor: Colors.grey.shade50, // Светлый фон, чуть темнее белого
-      floatingActionButton: (_isDeliveryActive && !widget.isDeliveryMode)
-          ? FloatingActionButton.extended(
-              onPressed: _startBuiltInScan,
-              backgroundColor: const Color(0xFFD4A043),
-              foregroundColor: Colors.black,
-              elevation: 6,
-              icon: const Icon(Icons.qr_code_scanner_rounded),
-              label: Text(
-                "Я ЗА СТОЛОМ",
-                style: GoogleFonts.outfit(fontWeight: FontWeight.bold, letterSpacing: 1),
-              ),
-            )
-          : null,
+
       body: Center(
         child: Container(
           constraints: BoxConstraints(maxWidth: isDesktop ? 600 : double.infinity),
@@ -2040,7 +2030,6 @@ class _SharedCartScreenState extends State<SharedCartScreen> {
     bool hasUnconfirmedItems = cart.items.any((item) => item.status == 'ordering');
     bool isConfirmed = !hasUnconfirmedItems && cart.items.isNotEmpty;
     
-    final readyCount = cart.participants.where((p) => p['is_ready'] == true).length;
     final totalParticipants = cart.participants.length;
  
     return Container(
@@ -2074,31 +2063,26 @@ class _SharedCartScreenState extends State<SharedCartScreen> {
                   itemBuilder: (context, idx) {
                     final p = cart.participants[idx];
                     final isMe = p['device_id'] == cart.deviceId;
-                    final isReady = p['is_ready'] == true;
                     final name = isMe ? "Вы" : (p['user_name'] ?? "Гость ${p['guest_number'] ?? idx + 1}");
                     
                     return Container(
                       margin: const EdgeInsets.only(right: 8),
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
-                        color: isReady 
-                            ? const Color(0xFF4CAF50).withOpacity(0.08) 
-                            : const Color(0xFFF44336).withOpacity(0.04),
+                        color: const Color(0xFFD4A043).withOpacity(0.06),
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                          color: isReady 
-                              ? const Color(0xFF4CAF50).withOpacity(0.2) 
-                              : const Color(0xFFF44336).withOpacity(0.12),
+                          color: const Color(0xFFD4A043).withOpacity(0.15),
                           width: 1,
                         ),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(
-                            isReady ? Icons.check_circle_rounded : Icons.pending_rounded,
-                            size: 13,
-                            color: isReady ? const Color(0xFF4CAF50) : const Color(0xFFF44336),
+                          const Icon(
+                            Icons.person_outline_rounded,
+                            size: 14,
+                            color: Color(0xFFD4A043),
                           ),
                           const SizedBox(width: 6),
                           Text(
@@ -2106,7 +2090,7 @@ class _SharedCartScreenState extends State<SharedCartScreen> {
                             style: GoogleFonts.outfit(
                               fontSize: 12,
                               fontWeight: isMe ? FontWeight.bold : FontWeight.w500,
-                              color: isReady ? const Color(0xFF2E7D32) : const Color(0xFFC62828),
+                              color: Colors.black87,
                             ),
                           ),
                           if (!isMe) ...[
@@ -2114,16 +2098,15 @@ class _SharedCartScreenState extends State<SharedCartScreen> {
                               onTap: () => _showRemoveParticipantDialog(context, cart, p),
                               behavior: HitTestBehavior.opaque,
                               child: const Padding(
-                                padding: EdgeInsets.only(left: 6, right: 2, top: 4, bottom: 4),
+                                padding: EdgeInsets.only(left: 6, right: 2),
                                 child: Icon(
                                   Icons.cancel_rounded,
-                                  size: 18,
-                                  color: Colors.black45,
+                                  size: 16,
+                                  color: Colors.black38,
                                 ),
                               ),
                             ),
                           ],
-
                         ],
                       ),
                     );
@@ -2152,39 +2135,20 @@ class _SharedCartScreenState extends State<SharedCartScreen> {
             ),
             const SizedBox(height: 16),
             ElevatedButton(
-              onPressed: (hasUnconfirmedItems) ? () => cart.toggleReady() : null,
+              onPressed: (hasUnconfirmedItems) ? () => _onPressOrder(context, cart) : null,
               style: ElevatedButton.styleFrom(
-                backgroundColor: cart.isReady ? const Color(0xFFD4A043) : Colors.black,
+                backgroundColor: const Color(0xFFD4A043),
+                foregroundColor: Colors.black,
                 disabledBackgroundColor: isConfirmed ? const Color(0xFFE09E00).withOpacity(0.7) : Colors.grey.shade300,
                 minimumSize: const Size(double.infinity, 60),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               ),
               child: Text(
                 isConfirmed ? "ЗАКАЗ ПРИНЯТ" : 
-                (cart.isReady && totalParticipants > 1) ? "ОЖИДАНИЕ ОСТАЛЬНЫХ ($readyCount/$totalParticipants)" :
                 hasUnconfirmedItems ? "ЗАКАЗАТЬ" : "КОРЗИНА ПУСТА",
-                style: GoogleFonts.outfit(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 16),
+                style: GoogleFonts.outfit(fontWeight: FontWeight.bold, color: Colors.black, fontSize: 16),
               ),
             ),
-            if (cart.isReady && totalParticipants > 1 && readyCount < totalParticipants && hasUnconfirmedItems) ...[
-              const SizedBox(height: 12),
-              OutlinedButton(
-                onPressed: () => _showForceSendConfirmDialog(context, cart),
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size(double.infinity, 50),
-                  side: const BorderSide(color: Color(0xFFD4A043), width: 1.5),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                ),
-                child: Text(
-                  "ОТПРАВИТЬ ЗАКАЗ СЕЙЧАС",
-                  style: GoogleFonts.outfit(
-                    fontWeight: FontWeight.bold,
-                    color: const Color(0xFFD4A043),
-                    fontSize: 14,
-                  ),
-                ),
-              ),
-            ],
           ],
         ),
       ),
@@ -2254,79 +2218,6 @@ class _SharedCartScreenState extends State<SharedCartScreen> {
                         elevation: 0,
                       ),
                       child: Text("УДАЛИТЬ", style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _showForceSendConfirmDialog(BuildContext context, CartProvider cart) {
-    showDialog(
-      context: context,
-      builder: (ctx) => Dialog(
-        backgroundColor: const Color(0xFF1E1E1E),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        child: Padding(
-          padding: const EdgeInsets.all(28),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFD4A043).withOpacity(0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.send_rounded, color: Color(0xFFD4A043), size: 32),
-              ),
-              const SizedBox(height: 20),
-              Text(
-                "ОТПРАВИТЬ СЕЙЧАС?",
-                style: GoogleFonts.outfit(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 2,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                "Некоторые гости ещё не нажали 'Готово'. Вы действительно хотите отправить заказ на кухню прямо сейчас?",
-                textAlign: TextAlign.center,
-                style: GoogleFonts.outfit(color: Colors.white70, fontSize: 13, height: 1.4),
-              ),
-              const SizedBox(height: 28),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextButton(
-                      onPressed: () => Navigator.pop(ctx),
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
-                      child: Text("ОТМЕНА", style: GoogleFonts.outfit(color: Colors.white54, fontWeight: FontWeight.bold)),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () {
-                        cart.confirmOrder();
-                        Navigator.pop(ctx);
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFD4A043),
-                        foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                        elevation: 0,
-                      ),
-                      child: Text("ОТПРАВИТЬ", style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
                     ),
                   ),
                 ],
@@ -2479,6 +2370,146 @@ class _SharedCartScreenState extends State<SharedCartScreen> {
       ),
     );
   }
+
+  void _onPressOrder(BuildContext context, CartProvider cart) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: const BoxDecoration(
+          color: Color(0xFF1E1E1E),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        padding: const EdgeInsets.all(28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFFD4A043).withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.qr_code_scanner_rounded, color: Color(0xFFD4A043), size: 32),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              "ПОДТВЕРЖДЕНИЕ СТОЛА",
+              style: GoogleFonts.outfit(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 2,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              "Чтобы отправить заказ на кухню стола №${widget.tableNumber}, пожалуйста, отсканируйте QR-код на вашем столе для подтверждения вашего присутствия в ресторане.",
+              textAlign: TextAlign.center,
+              style: GoogleFonts.outfit(color: Colors.white70, fontSize: 13, height: 1.4),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              "Если вы находитесь дома, мы с радостью привезем вам этот заказ доставкой!",
+              textAlign: TextAlign.center,
+              style: GoogleFonts.outfit(color: const Color(0xFFD4A043), fontSize: 13, fontWeight: FontWeight.bold, height: 1.4),
+            ),
+            const SizedBox(height: 28),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _scanTableQr(context, cart);
+                },
+                icon: const Icon(Icons.qr_code_scanner_rounded),
+                label: const Text("ОТКРЫТЬ КАМЕРУ (ПОДТВЕРДИТЬ СТОЛ)"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFD4A043),
+                  foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  textStyle: GoogleFonts.outfit(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.pop(ctx); // Закрываем этот диалог
+                  Navigator.pop(context); // Закрываем SharedCartScreen
+                  
+                  // Открываем DeliveryScreen для оформления доставки!
+                  showModalBottomSheet(
+                    context: context,
+                    isScrollControlled: true,
+                    backgroundColor: Colors.transparent,
+                    builder: (_) => const DeliveryScreen(),
+                  );
+                },
+                icon: const Icon(Icons.delivery_dining_rounded),
+                label: const Text("ОФОРМИТЬ КАК ДОСТАВКУ"),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  side: const BorderSide(color: Colors.white24, width: 1.5),
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  textStyle: GoogleFonts.outfit(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _scanTableQr(BuildContext context, CartProvider cart) async {
+    final result = await scanQrCodeFromCameraGlobal();
+    if (result != null && result.isNotEmpty) {
+      try {
+        final uri = Uri.parse(result);
+        final table = uri.queryParameters['table'];
+        
+        if (table != null && table == widget.tableNumber) {
+          await cart.confirmOrder();
+          
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'Заказ успешно отправлен на кухню стола №$table! Приятного аппетита!',
+                  style: GoogleFonts.outfit(fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+                backgroundColor: const Color(0xFF4CAF50),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+            Navigator.pop(context);
+          }
+        } else {
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'Неверный QR-код. Пожалуйста, отсканируйте код именно вашего стола №${widget.tableNumber}!',
+                  style: GoogleFonts.outfit(fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+                backgroundColor: Colors.redAccent,
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+        }
+      } catch (e) {
+        debugPrint('Scan parsing error: $e');
+      }
+    }
+  }
+
+
 }
 
 class TableMapItem {

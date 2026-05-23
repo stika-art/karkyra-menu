@@ -132,14 +132,6 @@ class CartProvider with ChangeNotifier {
         .eq('table_id', tableId)
         .listen((data) {
           _participants = data;
-          
-          // Проверка: если есть участники и ВСЕ готовы, подтверждаем заказ
-          if (_participants.isNotEmpty && 
-              _participants.every((p) => p['is_ready'] == true) &&
-              _items.any((it) => it.status == 'ordering')) {
-            confirmOrder();
-          }
-          
           notifyListeners();
         });
   }
