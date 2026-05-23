@@ -398,96 +398,52 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
     }
   }
 
-  Widget _buildExpiredScreen() {
-    return Scaffold(
-      backgroundColor: const Color(0xFF141414),
-      body: Center(
-        child: Container(
-          constraints: const BoxConstraints(maxWidth: 500),
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFD4A043).withOpacity(0.1),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: const Color(0xFFD4A043).withOpacity(0.2), width: 2),
-                ),
-                child: const Icon(
-                  Icons.timer_off_rounded,
-                  color: Color(0xFFD4A043),
-                  size: 64,
-                ),
+  Widget _buildRedirectBanner() {
+    return Container(
+      width: double.infinity,
+      color: const Color(0xFFD4A043).withOpacity(0.08),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      border: const Border(
+        bottom: BorderSide(color: Color(0xFFD4A043), width: 0.5),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.info_outline_rounded, color: Color(0xFFD4A043), size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              "Вы были автоматически переключены в режим доставки (сессия стола истекла). Если вы в ресторане за столом №${widget.tableId}, нажмите, чтобы вернуться.",
+              style: GoogleFonts.outfit(
+                color: const Color(0xFFD4A043),
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                height: 1.3,
               ),
-              const SizedBox(height: 32),
-              Text(
-                "ВРЕМЯ СЕССИИ ИСТЕКЛО",
-                style: GoogleFonts.forum(
-                  color: Colors.white,
-                  fontSize: 24,
-                  fontWeight: FontWeight.w400,
-                  letterSpacing: 4.0,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                "Доступ к Столу №${widget.tableId} по этой ссылке был открыт более 30 минут назад. Для безопасности и предотвращения случайных заказов вне ресторана, сессия была приостановлена.",
-                textAlign: TextAlign.center,
-                style: GoogleFonts.outfit(
-                  color: Colors.white70,
-                  fontSize: 14,
-                  height: 1.5,
-                ),
-              ),
-              const SizedBox(height: 40),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _extendSession,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFD4A043),
-                    foregroundColor: Colors.black,
-                    padding: const EdgeInsets.symmetric(vertical: 20),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                    elevation: 0,
-                  ),
-                  child: Text(
-                    "Я В РЕСТОРАНЕ (ПРОДЛИТЬ)",
-                    style: GoogleFonts.outfit(
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.5,
-                      fontSize: 14,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 24),
-              Text(
-                "Если вы ушли из ресторана, вы можете закрыть эту вкладку.",
-                textAlign: TextAlign.center,
-                style: GoogleFonts.outfit(
-                  color: Colors.white38,
-                  fontSize: 11,
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
+          const SizedBox(width: 12),
+          TextButton(
+            onPressed: _extendSession,
+            style: TextButton.styleFrom(
+              backgroundColor: const Color(0xFFD4A043),
+              foregroundColor: Colors.black,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            child: Text(
+              "ВЕРНУТЬСЯ",
+              style: GoogleFonts.outfit(fontSize: 11, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isSessionExpired) {
-      return _buildExpiredScreen();
-    }
-
     final screenWidth = MediaQuery.of(context).size.width;
     final isDesktop = screenWidth > 900;
-
     
     return Scaffold(
       backgroundColor: Colors.grey.shade50, // Светлый фон, чуть темнее белого
@@ -502,6 +458,7 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
                   SliverToBoxAdapter(
                     child: Column(
                       children: [
+                        if (_sessionRedirected) _buildRedirectBanner(),
                         BannerCarousel(banners: _banners),
                         // Используем отрицательный отступ, чтобы блок "наехал" на баннер и скрыл стык
                         Transform.translate(
@@ -534,6 +491,7 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
       ),
     );
   }
+
 
   Widget _buildWaiterPanel() {
     return Positioned(
@@ -684,7 +642,7 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
         ],
       ),
       actions: [
-        if (!widget.isDeliveryMode)
+        if (!_isDeliveryActive)
           IconButton(
             onPressed: () async {
               try {
@@ -763,7 +721,7 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
           child: Center(
             child: Consumer<CartProvider>(
               builder: (context, cart, child) {
-                final isDelivery = widget.isDeliveryMode;
+                final isDelivery = _isDeliveryActive;
                 
                 if (isDelivery) {
                   // Режим доставки — показываем кнопку "Заказать"
