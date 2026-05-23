@@ -169,13 +169,20 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
     } else {
       final savedTime = DateTime.parse(savedTimeStr);
       final difference = DateTime.now().difference(savedTime);
-      if (difference.inMinutes >= 30) {
+      
+      if (difference.inHours >= 4) {
+        // Прошло больше 4 часов — это явно новый визит (на следующий день или вечером).
+        // Автоматически обновляем время входа без показа экрана блокировки!
+        await prefs.setString(key, DateTime.now().toIso8601String());
+      } else if (difference.inMinutes >= 30) {
+        // Прошло от 30 минут до 4 часов — показываем экран блокировки
         setState(() {
           _isSessionExpired = true;
         });
       }
     }
   }
+
 
   void _extendSession() async {
     final prefs = await SharedPreferences.getInstance();
