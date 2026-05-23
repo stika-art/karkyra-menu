@@ -809,13 +809,24 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
 
                 // Обычный режим — иконка корзины
                 return GestureDetector(
-                  onTap: () {
-                    Navigator.push(
+                  onTap: () async {
+                    final result = await Navigator.push(
                       context,
                       MaterialPageRoute(
                         builder: (context) => SharedCartScreen(tableNumber: Provider.of<CartProvider>(context, listen: false).tableId),
                       ),
                     );
+                    
+                    if (result == 'show_delivery') {
+                      if (context.mounted) {
+                        showModalBottomSheet(
+                          context: context,
+                          isScrollControlled: true,
+                          backgroundColor: Colors.transparent,
+                          builder: (_) => const DeliveryScreen(),
+                        );
+                      }
+                    }
                   },
                   child: Stack(
                     clipBehavior: Clip.none,
@@ -2437,15 +2448,7 @@ class _SharedCartScreenState extends State<SharedCartScreen> {
               child: OutlinedButton.icon(
                 onPressed: () {
                   Navigator.pop(ctx); // Закрываем этот диалог
-                  Navigator.pop(context); // Закрываем SharedCartScreen
-                  
-                  // Открываем DeliveryScreen для оформления доставки!
-                  showModalBottomSheet(
-                    context: context,
-                    isScrollControlled: true,
-                    backgroundColor: Colors.transparent,
-                    builder: (_) => const DeliveryScreen(),
-                  );
+                  Navigator.pop(context, 'show_delivery'); // Закрываем SharedCartScreen с возвращаемым значением!
                 },
                 icon: const Icon(Icons.delivery_dining_rounded),
                 label: const Text("ОФОРМИТЬ КАК ДОСТАВКУ"),
