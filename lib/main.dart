@@ -1953,16 +1953,20 @@ class _SharedCartScreenState extends State<SharedCartScreen> {
                             ),
                           ),
                           if (!isMe) ...[
-                            const SizedBox(width: 6),
                             GestureDetector(
                               onTap: () => _showRemoveParticipantDialog(context, cart, p),
-                              child: const Icon(
-                                Icons.cancel_rounded,
-                                size: 14,
-                                color: Colors.grey,
+                              behavior: HitTestBehavior.opaque,
+                              child: const Padding(
+                                padding: EdgeInsets.only(left: 6, right: 2, top: 4, bottom: 4),
+                                child: Icon(
+                                  Icons.cancel_rounded,
+                                  size: 18,
+                                  color: Colors.black45,
+                                ),
                               ),
                             ),
                           ],
+
                         ],
                       ),
                     );

@@ -284,6 +284,11 @@ class CartProvider with ChangeNotifier {
   }
 
   Future<void> removeParticipant(String deviceIdToRemove) async {
+    // Оптимистичное обновление: моментально удаляем из локального списка для мгновенного отклика интерфейса
+    final backupParticipants = List<Map<String, dynamic>>.from(_participants);
+    _participants.removeWhere((p) => p['device_id'] == deviceIdToRemove);
+    notifyListeners();
+
     try {
       // 1. Сначала пробуем вызвать надежную RPC функцию в обход RLS
       await Supabase.instance.client.rpc('delete_table_participant', params: {
@@ -305,10 +310,16 @@ class CartProvider with ChangeNotifier {
         debugPrint('Direct delete response: $res');
       } catch (err) {
         debugPrint('Direct delete failed: $err');
+        
+        // Откатываем локальное удаление, если оба способа провалились
+        _participants = backupParticipants;
+        notifyListeners();
+        
         _showError("Ошибка удаления: $err");
       }
     }
   }
+
 
 
 
