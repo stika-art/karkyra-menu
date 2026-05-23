@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:ui';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:video_player/video_player.dart';
@@ -147,12 +148,44 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
   RealtimeChannel? _waiterCallChannel;
   bool _isWaiterComing = false;
   bool _isAskingName = false;
+  bool _isSessionExpired = false;
 
   @override
   void initState() {
     super.initState();
+    _checkSessionExpiry();
     _loadMenuData();
   }
+
+  void _checkSessionExpiry() async {
+    if (widget.isDeliveryMode) return;
+    
+    final prefs = await SharedPreferences.getInstance();
+    final key = 'table_${widget.tableId}_first_joined';
+    final savedTimeStr = prefs.getString(key);
+    
+    if (savedTimeStr == null) {
+      await prefs.setString(key, DateTime.now().toIso8601String());
+    } else {
+      final savedTime = DateTime.parse(savedTimeStr);
+      final difference = DateTime.now().difference(savedTime);
+      if (difference.inMinutes >= 30) {
+        setState(() {
+          _isSessionExpired = true;
+        });
+      }
+    }
+  }
+
+  void _extendSession() async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = 'table_${widget.tableId}_first_joined';
+    await prefs.setString(key, DateTime.now().toIso8601String());
+    setState(() {
+      _isSessionExpired = false;
+    });
+  }
+
 
   Future<void> _loadMenuData() async {
     try {
@@ -197,96 +230,132 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
     setState(() => _isAskingName = true);
     
     final controller = TextEditingController();
+    String? localError;
     
     if (!mounted) return;
 
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => PopScope(
-        canPop: false,
-        onPopInvoked: (didPop) => false,
-        child: Dialog(
-          backgroundColor: const Color(0xFF1E1E1E),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-          child: Padding(
-            padding: const EdgeInsets.all(32),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFD4A043).withOpacity(0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.person_outline_rounded, color: Color(0xFFD4A043), size: 32),
-                ),
-                const SizedBox(height: 24),
-                Text(
-                  "ДОБРО ПОЖАЛОВАТЬ",
-                  style: GoogleFonts.outfit(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 2,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  "Как нам к вам обращаться?",
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.outfit(color: Colors.white54, fontSize: 14),
-                ),
-                const SizedBox(height: 32),
-                TextField(
-                  controller: controller,
-                  autofocus: true,
-                  style: GoogleFonts.outfit(color: Colors.white),
-                  textAlign: TextAlign.center,
-                  decoration: InputDecoration(
-                    hintText: "Ваше имя",
-                    hintStyle: GoogleFonts.outfit(color: Colors.white24),
-                    filled: true,
-                    fillColor: Colors.white.withOpacity(0.05),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: BorderSide.none,
+      builder: (ctx) => StatefulBuilder(
+        builder: (dialogCtx, setDialogState) {
+          return PopScope(
+            canPop: false,
+            onPopInvoked: (didPop) => false,
+            child: Dialog(
+              backgroundColor: const Color(0xFF1E1E1E),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFD4A043).withOpacity(0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.person_outline_rounded, color: Color(0xFFD4A043), size: 32),
                     ),
-                    contentPadding: const EdgeInsets.symmetric(vertical: 18),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      final name = controller.text.trim();
-                      if (name.length >= 2) {
-                        cart.setUserName(name);
-                        Navigator.pop(ctx);
-                        if (mounted) {
-                          setState(() => _isAskingName = false);
-                        }
-                      }
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFD4A043),
-                      foregroundColor: Colors.black,
-                      padding: const EdgeInsets.symmetric(vertical: 18),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      elevation: 0,
+                    const SizedBox(height: 24),
+                    Text(
+                      "ДОБРО ПОЖАЛОВАТЬ",
+                      style: GoogleFonts.outfit(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 2,
+                      ),
                     ),
-                    child: Text(
-                      "НАЧАТЬ",
-                      style: GoogleFonts.outfit(fontWeight: FontWeight.bold, letterSpacing: 1),
+                    const SizedBox(height: 8),
+                    Text(
+                      "Как нам к вам обращаться?",
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.outfit(color: Colors.white54, fontSize: 14),
                     ),
-                  ),
+                    const SizedBox(height: 32),
+                    TextField(
+                      controller: controller,
+                      autofocus: true,
+                      style: GoogleFonts.outfit(color: Colors.white),
+                      textAlign: TextAlign.center,
+                      decoration: InputDecoration(
+                        hintText: "Ваше имя",
+                        hintStyle: GoogleFonts.outfit(color: Colors.white24),
+                        filled: true,
+                        fillColor: Colors.white.withOpacity(0.05),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: BorderSide.none,
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(vertical: 18),
+                      ),
+                    ),
+                    if (localError != null) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        localError!,
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.outfit(
+                          color: Colors.redAccent, 
+                          fontSize: 12, 
+                          fontWeight: FontWeight.bold,
+                          height: 1.3,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () {
+                          final name = controller.text.trim();
+                          if (name.isEmpty) {
+                            setDialogState(() => localError = "Пожалуйста, введите имя");
+                            return;
+                          }
+                          if (name.length < 2) {
+                            setDialogState(() => localError = "Имя должно быть не менее 2 символов");
+                            return;
+                          }
+                          
+                          // Проверяем уникальность имени за этим столом
+                          final nameExists = cart.participants.any((p) {
+                            final pName = p['user_name']?.toString().toLowerCase().trim();
+                            return pName == name.toLowerCase() && p['device_id'] != cart.deviceId;
+                          });
+                          
+                          if (nameExists) {
+                            setDialogState(() => localError = "Имя '$name' уже занято за вашим столом.\nПожалуйста, добавьте к имени цифру или фамилию (например, $name 2).");
+                            return;
+                          }
+                          
+                          cart.setUserName(name);
+                          Navigator.pop(ctx);
+                          if (mounted) {
+                            setState(() => _isAskingName = false);
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFD4A043),
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(vertical: 18),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          elevation: 0,
+                        ),
+                        child: Text(
+                          "НАЧАТЬ",
+                          style: GoogleFonts.outfit(fontWeight: FontWeight.bold, letterSpacing: 1),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
-          ),
-        ),
+          );
+        },
       ),
     ).then((_) {
       controller.dispose();
@@ -322,10 +391,96 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
     }
   }
 
+  Widget _buildExpiredScreen() {
+    return Scaffold(
+      backgroundColor: const Color(0xFF141414),
+      body: Center(
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 500),
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFD4A043).withOpacity(0.1),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: const Color(0xFFD4A043).withOpacity(0.2), width: 2),
+                ),
+                child: const Icon(
+                  Icons.timer_off_rounded,
+                  color: Color(0xFFD4A043),
+                  size: 64,
+                ),
+              ),
+              const SizedBox(height: 32),
+              Text(
+                "ВРЕМЯ СЕССИИ ИСТЕКЛО",
+                style: GoogleFonts.forum(
+                  color: Colors.white,
+                  fontSize: 24,
+                  fontWeight: FontWeight.w400,
+                  letterSpacing: 4.0,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                "Доступ к Столу №${widget.tableId} по этой ссылке был открыт более 30 минут назад. Для безопасности и предотвращения случайных заказов вне ресторана, сессия была приостановлена.",
+                textAlign: TextAlign.center,
+                style: GoogleFonts.outfit(
+                  color: Colors.white70,
+                  fontSize: 14,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 40),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _extendSession,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFD4A043),
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(vertical: 20),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    elevation: 0,
+                  ),
+                  child: Text(
+                    "Я В РЕСТОРАНЕ (ПРОДЛИТЬ)",
+                    style: GoogleFonts.outfit(
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.5,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              Text(
+                "Если вы ушли из ресторана, вы можете закрыть эту вкладку.",
+                textAlign: TextAlign.center,
+                style: GoogleFonts.outfit(
+                  color: Colors.white38,
+                  fontSize: 11,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (_isSessionExpired) {
+      return _buildExpiredScreen();
+    }
+
     final screenWidth = MediaQuery.of(context).size.width;
     final isDesktop = screenWidth > 900;
+
     
     return Scaffold(
       backgroundColor: Colors.grey.shade50, // Светлый фон, чуть темнее белого
