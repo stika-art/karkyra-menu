@@ -2403,7 +2403,7 @@ class _SharedCartScreenState extends State<SharedCartScreen> {
             ),
             const SizedBox(height: 20),
             Text(
-              "ПОДТВЕРЖДЕНИЕ СТОЛА",
+              "ПОДТВЕРЖДЕНИЕ ВАШЕГО ЗАКАЗА",
               style: GoogleFonts.outfit(
                 color: Colors.white,
                 fontSize: 20,
