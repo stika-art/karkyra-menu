@@ -77,17 +77,8 @@ class CartProvider with ChangeNotifier {
           .delete()
           .eq('table_id', tableId)
           .lt('last_active', fourHoursAgo);
-
-      // Удаляем "двойников" с таким же именем (если имя уже задано)
-      if (_userName != null && _userName!.isNotEmpty) {
-        await Supabase.instance.client
-            .from('table_participants')
-            .delete()
-            .eq('table_id', tableId)
-            .eq('user_name', _userName!)
-            .neq('device_id', _deviceId!);
-      }
     } catch (_) {}
+
 
     try {
       await Supabase.instance.client.rpc('get_guest_number', params: {
