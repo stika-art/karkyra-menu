@@ -285,15 +285,31 @@ class CartProvider with ChangeNotifier {
 
   Future<void> removeParticipant(String deviceIdToRemove) async {
     try {
-      await Supabase.instance.client
-          .from('table_participants')
-          .delete()
-          .eq('table_id', tableId)
-          .eq('device_id', deviceIdToRemove);
+      // 1. Сначала пробуем вызвать надежную RPC функцию в обход RLS
+      await Supabase.instance.client.rpc('delete_table_participant', params: {
+        'p_table_id': tableId,
+        'p_device_id': deviceIdToRemove,
+      });
+      debugPrint('Deleted participant via RPC: $deviceIdToRemove');
     } catch (e) {
-      _showError("Ошибка удаления гостя");
+      debugPrint('RPC delete failed, trying direct delete: $e');
+      try {
+        // 2. Если RPC нет, пробуем удалить напрямую
+        final res = await Supabase.instance.client
+            .from('table_participants')
+            .delete()
+            .eq('table_id', tableId)
+            .eq('device_id', deviceIdToRemove)
+            .select();
+        
+        debugPrint('Direct delete response: $res');
+      } catch (err) {
+        debugPrint('Direct delete failed: $err');
+        _showError("Ошибка удаления: $err");
+      }
     }
   }
+
 
 
   Future<void> clearTable() async {
