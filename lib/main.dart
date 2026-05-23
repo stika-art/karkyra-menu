@@ -180,9 +180,7 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
       if (mounted) {
         final cart = Provider.of<CartProvider>(context, listen: false);
         cart.onOrderConfirmed = () {
-          if (mounted) {
-            _expireSessionAndRedirect();
-          }
+          // После отправки заказа остаемся в корзине стола
         };
       }
     });
@@ -2487,7 +2485,6 @@ class _SharedCartScreenState extends State<SharedCartScreen> {
                 behavior: SnackBarBehavior.floating,
               ),
             );
-            Navigator.pop(context);
           }
         } else {
           if (context.mounted) {
