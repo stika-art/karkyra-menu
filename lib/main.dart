@@ -197,6 +197,71 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
     }
   }
 
+  Future<String?> _scanQrCodeFromCamera() {
+    final completer = Completer<String?>();
+    if (kIsWeb) {
+      try {
+        js.context.callMethod('scanQrCode', [
+          js.allowInterop((result) {
+            completer.complete(result?.toString());
+          })
+        ]);
+      } catch (e) {
+        debugPrint('JS Scanner failed: $e');
+        completer.complete(null);
+      }
+    } else {
+      completer.complete(null);
+    }
+    return completer.future;
+  }
+
+  void _startBuiltInScan() async {
+    final scannedResult = await _scanQrCodeFromCamera();
+    if (scannedResult != null && scannedResult.isNotEmpty) {
+      try {
+        final uri = Uri.parse(scannedResult);
+        final table = uri.queryParameters['table'];
+        
+        if (table != null && table == widget.tableId) {
+          // Успешно подтверждено! Сбрасываем таймер и возвращаем режим стола
+          _initSession(); // Перезапустит 30-минутный таймер и обновит SharedPreferences
+          setState(() {
+            _isDeliveryActive = false;
+          });
+          
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'Присутствие за столом №$table успешно подтверждено! Приятного аппетита!',
+                  style: GoogleFonts.outfit(fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+                backgroundColor: const Color(0xFF4CAF50),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'Неверный QR-код. Пожалуйста, отсканируйте код именно вашего стола №${widget.tableId}!',
+                  style: GoogleFonts.outfit(fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+                backgroundColor: Colors.redAccent,
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+        }
+      } catch (e) {
+        debugPrint('Scan parsing error: $e');
+      }
+    }
+  }
+
   @override
   void dispose() {
     _sessionTimer?.cancel();
@@ -204,6 +269,7 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
     _categoryScrollController.dispose();
     super.dispose();
   }
+
 
 
 
@@ -418,6 +484,19 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
     
     return Scaffold(
       backgroundColor: Colors.grey.shade50, // Светлый фон, чуть темнее белого
+      floatingActionButton: (_isDeliveryActive && !widget.isDeliveryMode)
+          ? FloatingActionButton.extended(
+              onPressed: _startBuiltInScan,
+              backgroundColor: const Color(0xFFD4A043),
+              foregroundColor: Colors.black,
+              elevation: 6,
+              icon: const Icon(Icons.qr_code_scanner_rounded),
+              label: Text(
+                "Я ЗА СТОЛОМ",
+                style: GoogleFonts.outfit(fontWeight: FontWeight.bold, letterSpacing: 1),
+              ),
+            )
+          : null,
       body: Center(
         child: Container(
           constraints: BoxConstraints(maxWidth: isDesktop ? 600 : double.infinity),
