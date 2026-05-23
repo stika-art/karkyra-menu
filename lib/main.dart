@@ -148,50 +148,63 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
   RealtimeChannel? _waiterCallChannel;
   bool _isWaiterComing = false;
   bool _isAskingName = false;
-  bool _isSessionExpired = false;
+  late bool _isDeliveryActive;
+  Timer? _sessionTimer;
 
   @override
   void initState() {
     super.initState();
-    _checkSessionExpiry();
+    _isDeliveryActive = widget.isDeliveryMode;
+    _initSession();
     _loadMenuData();
   }
 
-  void _checkSessionExpiry() async {
+  void _initSession() async {
     if (widget.isDeliveryMode) return;
     
+    // Если зашли по QR-коду (?table=X), мы ВСЕГДА сбрасываем время сессии в текущее,
+    // так как этот URL теперь невозможно получить из истории/закладок (мы его стираем).
     final prefs = await SharedPreferences.getInstance();
     final key = 'table_${widget.tableId}_first_joined';
-    final savedTimeStr = prefs.getString(key);
+    await prefs.setString(key, DateTime.now().toIso8601String());
     
-    if (savedTimeStr == null) {
-      await prefs.setString(key, DateTime.now().toIso8601String());
-    } else {
-      final savedTime = DateTime.parse(savedTimeStr);
-      final difference = DateTime.now().difference(savedTime);
-      
-      if (difference.inHours >= 4) {
-        // Прошло больше 4 часов — это явно новый визит (на следующий день или вечером).
-        // Автоматически обновляем время входа без показа экрана блокировки!
-        await prefs.setString(key, DateTime.now().toIso8601String());
-      } else if (difference.inMinutes >= 30) {
-        // Прошло от 30 минут до 4 часов — показываем экран блокировки
-        setState(() {
-          _isSessionExpired = true;
-        });
+    // Запускаем 30-минутный таймер
+    _startSessionExpiryTimer();
+  }
+
+  void _startSessionExpiryTimer() {
+    _sessionTimer?.cancel();
+    _sessionTimer = Timer(const Duration(minutes: 30), () {
+      if (mounted) {
+        _expireSessionAndRedirect();
+      }
+    });
+  }
+
+  void _expireSessionAndRedirect() {
+    setState(() {
+      _isDeliveryActive = true;
+    });
+    
+    // Переписываем URL в адресной строке браузера на "/" без перезагрузки страницы
+    if (kIsWeb) {
+      try {
+        js.context.callMethod('eval', ["window.history.replaceState({}, '', '/')"]);
+        debugPrint('URL successfully rewritten to / (Delivery Mode)');
+      } catch (e) {
+        debugPrint('URL rewrite failed: $e');
       }
     }
   }
 
-
-  void _extendSession() async {
-    final prefs = await SharedPreferences.getInstance();
-    final key = 'table_${widget.tableId}_first_joined';
-    await prefs.setString(key, DateTime.now().toIso8601String());
-    setState(() {
-      _isSessionExpired = false;
-    });
+  @override
+  void dispose() {
+    _sessionTimer?.cancel();
+    _waiterCallChannel?.unsubscribe();
+    _categoryScrollController.dispose();
+    super.dispose();
   }
+
 
 
   Future<void> _loadMenuData() async {
@@ -398,48 +411,6 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
     }
   }
 
-  Widget _buildRedirectBanner() {
-    return Container(
-      width: double.infinity,
-      color: const Color(0xFFD4A043).withOpacity(0.08),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      border: const Border(
-        bottom: BorderSide(color: Color(0xFFD4A043), width: 0.5),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.info_outline_rounded, color: Color(0xFFD4A043), size: 20),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              "Вы были автоматически переключены в режим доставки (сессия стола истекла). Если вы в ресторане за столом №${widget.tableId}, нажмите, чтобы вернуться.",
-              style: GoogleFonts.outfit(
-                color: const Color(0xFFD4A043),
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                height: 1.3,
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          TextButton(
-            onPressed: _extendSession,
-            style: TextButton.styleFrom(
-              backgroundColor: const Color(0xFFD4A043),
-              foregroundColor: Colors.black,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            ),
-            child: Text(
-              "ВЕРНУТЬСЯ",
-              style: GoogleFonts.outfit(fontSize: 11, fontWeight: FontWeight.bold),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
@@ -458,7 +429,6 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
                   SliverToBoxAdapter(
                     child: Column(
                       children: [
-                        if (_sessionRedirected) _buildRedirectBanner(),
                         BannerCarousel(banners: _banners),
                         // Используем отрицательный отступ, чтобы блок "наехал" на баннер и скрыл стык
                         Transform.translate(
