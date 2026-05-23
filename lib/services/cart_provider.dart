@@ -290,16 +290,24 @@ class CartProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      // 1. Сначала пробуем вызвать надежную RPC функцию в обход RLS
+      // 1. Сначала пробуем вызвать надежную RPC функцию в обход RLS (она удалит и участника, и его корзину)
       await Supabase.instance.client.rpc('delete_table_participant', params: {
         'p_table_id': tableId,
         'p_device_id': deviceIdToRemove,
       });
-      debugPrint('Deleted participant via RPC: $deviceIdToRemove');
+      debugPrint('Deleted participant and their unconfirmed orders via RPC: $deviceIdToRemove');
     } catch (e) {
-      debugPrint('RPC delete failed, trying direct delete: $e');
+      debugPrint('RPC delete failed, trying direct deletes: $e');
       try {
-        // 2. Если RPC нет, пробуем удалить напрямую
+        // 2. Фаллбек: пробуем напрямую удалить неотправленные блюда гостя
+        await Supabase.instance.client
+            .from('orders_new')
+            .delete()
+            .eq('table_id', tableId)
+            .eq('added_by', deviceIdToRemove)
+            .eq('status', 'ordering');
+
+        // 3. Фаллбек: пробуем удалить самого участника напрямую
         final res = await Supabase.instance.client
             .from('table_participants')
             .delete()
@@ -319,6 +327,7 @@ class CartProvider with ChangeNotifier {
       }
     }
   }
+
 
 
 
