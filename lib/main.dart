@@ -292,13 +292,6 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
     }
   }
 
-  @override
-  void dispose() {
-    _waiterCallChannel?.unsubscribe();
-    _categoryScrollController.dispose();
-    super.dispose();
-  }
-
   void _askUserName() async {
     if (_isAskingName) return;
     
