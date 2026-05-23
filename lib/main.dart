@@ -149,7 +149,6 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
   bool _isWaiterComing = false;
   bool _isAskingName = false;
   late bool _isDeliveryActive;
-  Timer? _sessionTimer;
 
   @override
   void initState() {
@@ -157,28 +156,25 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
     _isDeliveryActive = widget.isDeliveryMode;
     _initSession();
     _loadMenuData();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        final cart = Provider.of<CartProvider>(context, listen: false);
+        cart.onOrderConfirmed = () {
+          if (mounted) {
+            _expireSessionAndRedirect();
+          }
+        };
+      }
+    });
   }
 
   void _initSession() async {
     if (widget.isDeliveryMode) return;
     
-    // Если зашли по QR-коду (?table=X), мы ВСЕГДА сбрасываем время сессии в текущее,
-    // так как этот URL теперь невозможно получить из истории/закладок (мы его стираем).
     final prefs = await SharedPreferences.getInstance();
     final key = 'table_${widget.tableId}_first_joined';
     await prefs.setString(key, DateTime.now().toIso8601String());
-    
-    // Запускаем 30-минутный таймер
-    _startSessionExpiryTimer();
-  }
-
-  void _startSessionExpiryTimer() {
-    _sessionTimer?.cancel();
-    _sessionTimer = Timer(const Duration(minutes: 30), () {
-      if (mounted) {
-        _expireSessionAndRedirect();
-      }
-    });
   }
 
   void _expireSessionAndRedirect() {
@@ -264,7 +260,6 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
 
   @override
   void dispose() {
-    _sessionTimer?.cancel();
     _waiterCallChannel?.unsubscribe();
     _categoryScrollController.dispose();
     super.dispose();

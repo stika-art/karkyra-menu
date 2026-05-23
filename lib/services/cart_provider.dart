@@ -23,6 +23,7 @@ class CartProvider with ChangeNotifier {
 
   StreamSubscription? _cartSub;
   StreamSubscription? _participantSub;
+  VoidCallback? onOrderConfirmed;
 
   CartProvider({required this.tableId}) {
     _init();
@@ -255,6 +256,9 @@ class CartProvider with ChangeNotifier {
           .update({'is_ready': false})
           .eq('table_id', tableId);
           
+      if (onOrderConfirmed != null) {
+        onOrderConfirmed!();
+      }
     } catch (e) {
       _showError("Ошибка подтверждения");
     }
