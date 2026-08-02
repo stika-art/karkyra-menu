@@ -15,9 +15,9 @@ class WaiterService {
 
   static Future<void> saveCurrentWaiter(Map<String, dynamic> waiter) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_waiterIdKey, waiter['id'] as String);
-    await prefs.setString(_waiterNameKey, waiter['name'] ?? '');
-    await prefs.setString(_waiterPhoneKey, waiter['phone'] ?? '');
+    await prefs.setString(_waiterIdKey, waiter['id'].toString());
+    await prefs.setString(_waiterNameKey, (waiter['name'] ?? '').toString());
+    await prefs.setString(_waiterPhoneKey, (waiter['phone'] ?? '').toString());
   }
 
   static Future<Map<String, String>?> getCurrentWaiter() async {

@@ -140,10 +140,12 @@ class _WaiterTablesScreenState extends State<WaiterTablesScreen> {
     }
   }
 
-  String _getWaiterName(String? waiterId) {
+  String _getWaiterName(dynamic waiterId) {
     if (waiterId == null) return '';
-    if (waiterId == widget.currentWaiter['id']) return 'Вы';
-    final found = _allWaiters.firstWhere((w) => w['id'] == waiterId, orElse: () => {'name': 'Другой официант'});
+    final wIdStr = waiterId.toString();
+    final myIdStr = widget.currentWaiter['id']?.toString();
+    if (wIdStr == myIdStr) return 'Вы';
+    final found = _allWaiters.firstWhere((w) => w['id']?.toString() == wIdStr, orElse: () => {'name': 'Другой официант'});
     return found['name'] ?? 'Другой официант';
   }
 
@@ -153,12 +155,14 @@ class _WaiterTablesScreenState extends State<WaiterTablesScreen> {
       return const Center(child: CircularProgressIndicator(color: Color(0xFFD4A043)));
     }
 
+    final myIdStr = widget.currentWaiter['id']?.toString();
+
     final filteredTables = _selectedFloorId == null
         ? _tables
         : _tables.where((t) => t['floor_id'] == _selectedFloorId).toList();
 
-    final myTablesCount = _tables.where((t) => t['waiter_id'] == widget.currentWaiter['id']).length;
-    final freeTablesCount = _tables.where((t) => t['waiter_id'] == null).length;
+    final myTablesCount = _tables.where((t) => t['waiter_id']?.toString() == myIdStr).length;
+    final freeTablesCount = _tables.where((t) => t['waiter_id'] == null || t['waiter_id'].toString().isEmpty).length;
 
     return Scaffold(
       backgroundColor: const Color(0xFF000000),
@@ -239,11 +243,11 @@ class _WaiterTablesScreenState extends State<WaiterTablesScreen> {
                       itemCount: filteredTables.length,
                       itemBuilder: (context, index) {
                         final table = filteredTables[index];
-                        final waiterId = table['waiter_id'];
-                        final isMine = waiterId == widget.currentWaiter['id'];
-                        final isFree = waiterId == null;
+                        final waiterIdStr = table['waiter_id']?.toString();
+                        final isMine = waiterIdStr != null && waiterIdStr.isNotEmpty && waiterIdStr == myIdStr;
+                        final isFree = waiterIdStr == null || waiterIdStr.isEmpty;
                         final label = table['label'] ?? 'Стол №${index + 1}';
-                        final waiterName = _getWaiterName(waiterId);
+                        final waiterName = _getWaiterName(table['waiter_id']);
 
                         return _buildTableCard(
                           table: table,
@@ -259,6 +263,7 @@ class _WaiterTablesScreenState extends State<WaiterTablesScreen> {
         ),
       ),
     );
+
   }
 
   Widget _buildStatItem(String label, String value, Color color, IconData icon) {
