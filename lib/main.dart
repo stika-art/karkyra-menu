@@ -85,6 +85,8 @@ void main() async {
     final String tableId = params['table'] ?? '1';
     final bool isDeliveryMode = !params.containsKey('table');
 
+    final String fullUrl = Uri.base.toString().toLowerCase();
+
     // Обработка ссылки «Иду к столу!» из Telegram
     if (params.containsKey('accept_call')) {
       final callId = params['accept_call']!;
@@ -104,13 +106,13 @@ void main() async {
         ),
         home: _AcceptOrderPage(tableId: tableId),
       ));
-    } else if (params.containsKey('admin')) {
-      runApp(const admin.AdminApp());
-    } else if (params.containsKey('waiter') || params['role'] == 'waiter') {
+    } else if (fullUrl.contains('waiter') || params.containsKey('waiter') || params['role'] == 'waiter') {
       runApp(const MaterialApp(
         debugShowCheckedModeBanner: false,
         home: waiter.WaiterApp(),
       ));
+    } else if (fullUrl.contains('admin') || params.containsKey('admin')) {
+      runApp(const admin.AdminApp());
     } else {
       runApp(
         MultiProvider(
