@@ -1,11 +1,11 @@
 {
-    "name": "Каркыра — Официанты и Ресторан",
-    "short_name": "Каркыра",
+    "name": "Bonum — Официанты и Ресторан",
+    "short_name": "Bonum",
     "start_url": "./?waiter=true",
     "display": "standalone",
     "background_color": "#000000",
     "theme_color": "#000000",
-    "description": "Приложение для официантов и гостей ресторана Каркыра",
+    "description": "Приложение для официантов и гостей ресторана Bonum",
     "orientation": "portrait",
     "prefer_related_applications": false,
     "icons": [

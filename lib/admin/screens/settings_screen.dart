@@ -83,7 +83,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         Uri.parse('https://api.telegram.org/bot$token/sendMessage'),
         body: {
           'chat_id': chatId,
-          'text': '✅ Тестовое сообщение от Каркыра Админ-панели. Всё работает!',
+          'text': '✅ Тестовое сообщение от Bonum Админ-панели. Всё работает!',
           'parse_mode': 'HTML',
         },
       );
