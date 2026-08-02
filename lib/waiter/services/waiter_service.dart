@@ -205,6 +205,19 @@ class WaiterService {
     }
   }
 
+  /// Очистить завершенные/закрытые заказы прошлых смен
+  static Future<bool> clearClosedOrders() async {
+    try {
+      await _client
+          .from('orders_new')
+          .delete()
+          .inFilter('status', ['closed', 'completed']);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   // ==========================================
   // Вызовы официанта (waiter_calls)
   // ==========================================

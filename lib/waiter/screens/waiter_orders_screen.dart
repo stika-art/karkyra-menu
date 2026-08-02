@@ -72,6 +72,47 @@ class _WaiterOrdersScreenState extends State<WaiterOrdersScreen> with SingleTick
     }
   }
 
+  Future<void> _confirmClearClosedOrders() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1C1C1E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text('Очистить прошлые заказы?', style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold)),
+        content: Text(
+          'Удалить все закрытые заказы прошлых смен, чтобы они не мешали сегодня?',
+          style: GoogleFonts.outfit(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('Отмена', style: GoogleFonts.outfit(color: Colors.white54)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFD4A043)),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('Очистить', style: GoogleFonts.outfit(color: Colors.black, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      final success = await WaiterService.clearClosedOrders();
+      if (mounted) {
+        if (success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('История закрытых заказов очищена 🧹', style: GoogleFonts.outfit()),
+              backgroundColor: const Color(0xFFD4A043),
+            ),
+          );
+          _loadOrders();
+        }
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final waiterId = widget.currentWaiter['id'];
@@ -80,7 +121,7 @@ class _WaiterOrdersScreenState extends State<WaiterOrdersScreen> with SingleTick
     final myOrders = _orders.where((o) {
       final table = o['restaurant_tables'];
       if (table != null && table is Map) {
-        return table['waiter_id'] == waiterId;
+        return table['waiter_id']?.toString() == waiterId?.toString();
       }
       return false;
     }).toList();
@@ -121,13 +162,46 @@ class _WaiterOrdersScreenState extends State<WaiterOrdersScreen> with SingleTick
                       controller: _tabController,
                       children: [
                         _buildOrdersList(myOrders, emptyMessage: 'У вас пока нет активных заказов'),
-                        _buildOrdersList(_orders, emptyMessage: 'Заказы в ресторане отсутствуют'),
+                        _buildAllOrdersTab(_orders),
                       ],
                     ),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildAllOrdersTab(List<Map<String, dynamic>> orders) {
+    final closedCount = orders.where((o) => o['status'] == 'closed' || o['status'] == 'completed').length;
+
+    return Column(
+      children: [
+        if (closedCount > 0)
+          Padding(
+            padding: const EdgeInsets.only(left: 16, right: 16, bottom: 10),
+            child: SizedBox(
+              width: double.infinity,
+              height: 42,
+              child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white70,
+                  side: BorderSide(color: const Color(0xFFD4A043).withOpacity(0.5)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                onPressed: _confirmClearClosedOrders,
+                icon: const Icon(Icons.cleaning_services_rounded, size: 18, color: Color(0xFFD4A043)),
+                label: Text(
+                  'Очистить прошлые заказы ($closedCount)',
+                  style: GoogleFonts.outfit(color: const Color(0xFFD4A043), fontSize: 13, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+          ),
+        Expanded(
+          child: _buildOrdersList(orders, emptyMessage: 'Заказы в ресторане отсутствуют'),
+        ),
+      ],
     );
   }
 
