@@ -62,9 +62,14 @@ class _WaiterOrdersScreenState extends State<WaiterOrdersScreen> with SingleTick
   Future<void> _updateStatus(String orderId, String newStatus) async {
     final success = await WaiterService.updateOrderStatus(orderId, newStatus);
     if (mounted && success) {
+      final statusLabel = newStatus == 'served'
+          ? 'Подан'
+          : newStatus == 'closed'
+              ? 'Закрыт'
+              : 'Обновлен';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Статус заказа обновлен на "$newStatus" ✅', style: GoogleFonts.outfit()),
+          content: Text('Заказ отмечен: $statusLabel ✅', style: GoogleFonts.outfit()),
           backgroundColor: const Color(0xFFD4A043),
         ),
       );

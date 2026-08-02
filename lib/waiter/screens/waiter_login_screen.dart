@@ -78,7 +78,7 @@ class _WaiterLoginScreenState extends State<WaiterLoginScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Bonum Waiter',
+                        'Bonum',
                         style: GoogleFonts.outfit(
                           color: Colors.white,
                           fontSize: 26,

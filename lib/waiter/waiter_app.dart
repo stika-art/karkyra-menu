@@ -111,7 +111,7 @@ class _WaiterAppState extends State<WaiterApp> {
                   style: GoogleFonts.outfit(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
                 ),
                 Text(
-                  'Официант (Bonum)',
+                  'Панель Официанта',
                   style: GoogleFonts.outfit(color: Colors.white38, fontSize: 11),
                 ),
               ],

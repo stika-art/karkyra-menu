@@ -14,16 +14,26 @@ class SettingsService {
           .select()
           .timeout(const Duration(seconds: 5));
       _cache = {
-        for (final row in res as List) row['key'] as String: row['value'] as String
+        for (final row in res as List) row['key'].toString(): row['value'].toString()
       };
       _loaded = true;
     } catch (_) {
-      // Если база недоступна — используем значения по умолчанию
-      _loaded = false;
+      try {
+        final res = await Supabase.instance.client
+            .from('settings')
+            .select()
+            .timeout(const Duration(seconds: 5));
+        _cache = {
+          for (final row in res as List) row['key'].toString(): row['value'].toString()
+        };
+        _loaded = true;
+      } catch (_) {
+        _loaded = false;
+      }
     }
   }
 
-  static String get adminPassword => _cache['admin_password'] ?? 'karkyra2025';
+  static String get adminPassword => _cache['admin_password'] ?? '2026';
   static String get telegramToken => _cache['telegram_token'] ?? '';
   static String get telegramChatId => _cache['telegram_chat_id'] ?? '';
   static bool get telegramNotify => _cache['telegram_notify'] != 'false';
