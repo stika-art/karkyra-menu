@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/waiter_service.dart';
 
 class WaiterLoginScreen extends StatefulWidget {
@@ -34,89 +33,15 @@ class _WaiterLoginScreenState extends State<WaiterLoginScreen> {
   Future<void> _selectWaiter(Map<String, dynamic> waiter) async {
     await WaiterService.saveCurrentWaiter(waiter);
     final saved = {
-      'id': waiter['id'] as String,
-      'name': (waiter['name'] ?? 'Официант') as String,
-      'phone': (waiter['phone'] ?? '') as String,
+      'id': waiter['id'].toString(),
+      'name': (waiter['name'] ?? 'Официант').toString(),
+      'phone': (waiter['phone'] ?? '').toString(),
     };
     widget.onLoginSuccess(saved);
   }
 
-  void _showAddWaiterDialog() {
-    final nameCtrl = TextEditingController();
-    final phoneCtrl = TextEditingController();
-
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1C1C1E),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text('Регистрация официанта', style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nameCtrl,
-              style: GoogleFonts.outfit(color: Colors.white),
-              decoration: InputDecoration(
-                hintText: 'Имя и фамилия',
-                hintStyle: GoogleFonts.outfit(color: Colors.white38),
-                filled: true,
-                fillColor: Colors.white.withOpacity(0.05),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: phoneCtrl,
-              keyboardType: TextInputType.phone,
-              style: GoogleFonts.outfit(color: Colors.white),
-              decoration: InputDecoration(
-                hintText: 'Номер телефона',
-                hintStyle: GoogleFonts.outfit(color: Colors.white38),
-                filled: true,
-                fillColor: Colors.white.withOpacity(0.05),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text('Отмена', style: GoogleFonts.outfit(color: Colors.white54)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFD4A043),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            ),
-            onPressed: () async {
-              final name = nameCtrl.text.trim();
-              if (name.isEmpty) return;
-              final phone = phoneCtrl.text.trim();
-              try {
-                final res = await Supabase.instance.client
-                    .from('waiters')
-                    .insert({'name': name, 'phone': phone})
-                    .select()
-                    .single();
-                Navigator.pop(ctx);
-                _selectWaiter(res);
-              } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Ошибка сохранения: $e', style: GoogleFonts.outfit())),
-                );
-              }
-            },
-            child: Text('Войти', style: GoogleFonts.outfit(color: Colors.black, fontWeight: FontWeight.bold)),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
-  Widget build(BuildContext me) {
+  Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF000000),
       body: SafeArea(
@@ -234,24 +159,25 @@ class _WaiterLoginScreenState extends State<WaiterLoginScreen> {
               ),
 
               const SizedBox(height: 16),
-              SizedBox(
+              Container(
                 width: double.infinity,
-                height: 52,
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF1C1C1E),
-                    foregroundColor: const Color(0xFFD4A043),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      side: BorderSide(color: const Color(0xFFD4A043).withOpacity(0.4)),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.03),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.white.withOpacity(0.06)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.info_outline_rounded, color: Colors.white38, size: 20),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Регистрация новых официантов выполняется через панель администратора',
+                        style: GoogleFonts.outfit(color: Colors.white54, fontSize: 12),
+                      ),
                     ),
-                  ),
-                  onPressed: _showAddWaiterDialog,
-                  icon: const Icon(Icons.add_rounded),
-                  label: Text(
-                    'Новый официант',
-                    style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
+                  ],
                 ),
               ),
             ],
@@ -274,8 +200,9 @@ class _WaiterLoginScreenState extends State<WaiterLoginScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Нажмите кнопку ниже, чтобы зарегистрироваться',
+            'Обратитесь к администратору для создания вашего аккаунта',
             style: GoogleFonts.outfit(color: Colors.white38, fontSize: 14),
+            textAlign: TextAlign.center,
           ),
         ],
       ),
