@@ -31,13 +31,24 @@ class _WaiterLoginScreenState extends State<WaiterLoginScreen> {
   }
 
   Future<void> _selectWaiter(Map<String, dynamic> waiter) async {
-    await WaiterService.saveCurrentWaiter(waiter);
-    final saved = {
-      'id': waiter['id'].toString(),
-      'name': (waiter['name'] ?? 'Официант').toString(),
-      'phone': (waiter['phone'] ?? '').toString(),
-    };
-    widget.onLoginSuccess(saved);
+    final res = await WaiterService.loginWaiter(waiter);
+    if (!mounted) return;
+
+    if (res['success'] == true) {
+      final saved = {
+        'id': waiter['id'].toString(),
+        'name': (waiter['name'] ?? 'Официант').toString(),
+        'phone': (waiter['phone'] ?? '').toString(),
+      };
+      widget.onLoginSuccess(saved);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(res['message'] ?? 'Этот официант уже в сети на другом устройстве!', style: GoogleFonts.outfit()),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    }
   }
 
   @override

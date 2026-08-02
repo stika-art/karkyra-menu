@@ -59,7 +59,7 @@ class _WaiterAppState extends State<WaiterApp> {
     );
 
     if (confirm == true) {
-      await WaiterService.clearCurrentWaiter();
+      await WaiterService.logoutCurrentWaiter();
       setState(() {
         _currentWaiter = null;
         _currentIndex = 0;

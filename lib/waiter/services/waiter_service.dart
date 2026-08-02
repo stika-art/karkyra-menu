@@ -38,6 +38,59 @@ class WaiterService {
     await prefs.remove(_waiterPhoneKey);
   }
 
+  /// Попытка входа под профилем официанта с проверкой активной сессии
+  static Future<Map<String, dynamic>> loginWaiter(Map<String, dynamic> waiter) async {
+    final waiterId = waiter['id'].toString();
+    try {
+      // Проверяем текущее состояние официанта в БД
+      final res = await _client
+          .from('waiters')
+          .select('is_online')
+          .eq('id', waiterId)
+          .maybeSingle();
+
+      if (res != null && res['is_online'] == true) {
+        final currentLocal = await getCurrentWaiter();
+        if (currentLocal == null || currentLocal['id'] != waiterId) {
+          // Другое устройство уже зашло под этим официантом
+          return {
+            'success': false,
+            'message': 'Этот официант уже авторизован на другом устройстве!',
+          };
+        }
+      }
+
+      // Отмечаем профиль как занятый (is_online = true)
+      try {
+        await _client
+            .from('waiters')
+            .update({'is_online': true})
+            .eq('id', waiterId);
+      } catch (_) {
+        // Если в БД пока нет колонки is_online, пропускаем ошибку обновления
+      }
+
+      await saveCurrentWaiter(waiter);
+      return {'success': true};
+    } catch (e) {
+      await saveCurrentWaiter(waiter);
+      return {'success': true};
+    }
+  }
+
+  static Future<void> logoutCurrentWaiter() async {
+    final current = await getCurrentWaiter();
+    if (current != null && current['id'] != null) {
+      try {
+        await _client
+            .from('waiters')
+            .update({'is_online': false})
+            .eq('id', current['id']!);
+      } catch (_) {}
+    }
+    await clearCurrentWaiter();
+  }
+
   // ==========================================
   // Официанты
   // ==========================================
