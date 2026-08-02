@@ -1,7 +1,7 @@
 {
-    "name": "Bonum — Официанты и Ресторан",
+    "name": "Bonum — Ресторан",
     "short_name": "Bonum",
-    "start_url": "./?waiter=true",
+    "start_url": "./",
     "display": "standalone",
     "background_color": "#000000",
     "theme_color": "#000000",

@@ -87,6 +87,9 @@ void main() async {
 
     final String fullUrl = Uri.base.toString().toLowerCase();
 
+    final prefs = await SharedPreferences.getInstance();
+    final hasWaiterSession = (prefs.getString('current_waiter_id') ?? '').isNotEmpty;
+
     // Обработка ссылки «Иду к столу!» из Telegram
     if (params.containsKey('accept_call')) {
       final callId = params['accept_call']!;
@@ -106,7 +109,7 @@ void main() async {
         ),
         home: _AcceptOrderPage(tableId: tableId),
       ));
-    } else if (fullUrl.contains('waiter') || params.containsKey('waiter') || params['role'] == 'waiter') {
+    } else if (fullUrl.contains('waiter') || params.containsKey('waiter') || params['role'] == 'waiter' || hasWaiterSession) {
       runApp(const MaterialApp(
         debugShowCheckedModeBanner: false,
         home: waiter.WaiterApp(),
