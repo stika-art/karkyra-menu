@@ -23,6 +23,7 @@ import 'services/telegram_service.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:js' as js;
 import 'guest/banner_carousel.dart';
+import 'waiter/waiter_app.dart' as waiter;
 
 Future<String?> scanQrCodeFromCameraGlobal() {
   final completer = Completer<String?>();
@@ -105,6 +106,11 @@ void main() async {
       ));
     } else if (params.containsKey('admin')) {
       runApp(const admin.AdminApp());
+    } else if (params.containsKey('waiter') || params['role'] == 'waiter') {
+      runApp(const MaterialApp(
+        debugShowCheckedModeBanner: false,
+        home: waiter.WaiterApp(),
+      ));
     } else {
       runApp(
         MultiProvider(

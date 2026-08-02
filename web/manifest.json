@@ -1,12 +1,12 @@
 {
-    "name": "Каркыра",
+    "name": "Каркыра — Официанты и Ресторан",
     "short_name": "Каркыра",
-    "start_url": ".",
+    "start_url": "./?waiter=true",
     "display": "standalone",
-    "background_color": "#141414",
-    "theme_color": "#141414",
-    "description": "Меню ресто-чайханы Каркыра",
-    "orientation": "portrait-primary",
+    "background_color": "#000000",
+    "theme_color": "#000000",
+    "description": "Приложение для официантов и гостей ресторана Каркыра",
+    "orientation": "portrait",
     "prefer_related_applications": false,
     "icons": [
         {

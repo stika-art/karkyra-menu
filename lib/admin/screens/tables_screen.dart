@@ -13,6 +13,7 @@ class TablesScreen extends StatefulWidget {
 class _TablesScreenState extends State<TablesScreen> {
   List<Map<String, dynamic>> _floors = [];
   List<Map<String, dynamic>> _tables = [];
+  List<Map<String, dynamic>> _waiters = [];
   String? _selectedFloorId;
   bool _loading = true;
 
@@ -33,10 +34,12 @@ class _TablesScreenState extends State<TablesScreen> {
     try {
       final fRes = await Supabase.instance.client.from('floors').select().order('sort_order');
       final tRes = await Supabase.instance.client.from('restaurant_tables').select();
+      final wRes = await Supabase.instance.client.from('waiters').select();
       
       setState(() {
         _floors = List<Map<String, dynamic>>.from(fRes);
         _tables = List<Map<String, dynamic>>.from(tRes);
+        _waiters = List<Map<String, dynamic>>.from(wRes);
         if (_floors.isNotEmpty && _selectedFloorId == null) {
           _selectedFloorId = _floors.first['id'];
         }
@@ -585,6 +588,12 @@ class _TablesScreenState extends State<TablesScreen> {
     }
 
     final isDragging = _draggingId == tId;
+    final waiterId = table['waiter_id'];
+    String waiterName = '';
+    if (waiterId != null) {
+      final w = _waiters.firstWhere((item) => item['id'] == waiterId, orElse: () => {});
+      waiterName = w['name'] ?? 'Официант';
+    }
 
     return Positioned(
       left: x - (w / 2),
@@ -616,12 +625,12 @@ class _TablesScreenState extends State<TablesScreen> {
                           .update({'pos_x': updated['pos_x'], 'pos_y': updated['pos_y']})
                           .eq('id', tId);
                     },
-                    child: _TableShape(table: table, width: w, height: h, isMoving: true, isDragging: isDragging),
+                    child: _TableShape(table: table, width: w, height: h, isMoving: true, isDragging: isDragging, waiterName: waiterName),
                   )
                 : GestureDetector(
                     onTap: () => _editTable(table),
                     onLongPress: () => _deleteTable(tId),
-                    child: _TableShape(table: table, width: w, height: h, isMoving: false, isDragging: false),
+                    child: _TableShape(table: table, width: w, height: h, isMoving: false, isDragging: false, waiterName: waiterName),
                   ),
           ],
         ),
@@ -695,36 +704,81 @@ class _TableShape extends StatelessWidget {
   final double height;
   final bool isMoving;
   final bool isDragging;
+  final String waiterName;
 
-  const _TableShape({required this.table, required this.width, required this.height, required this.isMoving, required this.isDragging});
+  const _TableShape({
+    required this.table,
+    required this.width,
+    required this.height,
+    required this.isMoving,
+    required this.isDragging,
+    this.waiterName = '',
+  });
 
   @override
   Widget build(BuildContext context) {
+    final hasWaiter = waiterName.isNotEmpty;
+
     return Container(
-      width: width, height: height,
+      width: width,
+      height: height,
       decoration: BoxDecoration(
-        color: isMoving ? Colors.blue.withOpacity(0.2) : const Color(0xFFD4A043).withOpacity(0.2),
+        color: isMoving
+            ? Colors.blue.withOpacity(0.2)
+            : hasWaiter
+                ? Colors.amber.withOpacity(0.25)
+                : const Color(0xFFD4A043).withOpacity(0.15),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: isMoving ? Colors.blue : const Color(0xFFD4A043),
-          width: isDragging ? 3 : 1.5,
+          color: isMoving
+              ? Colors.blue
+              : hasWaiter
+                  ? const Color(0xFFD4A043)
+                  : Colors.white24,
+          width: isDragging || hasWaiter ? 2 : 1,
         ),
         boxShadow: isDragging ? [BoxShadow(color: Colors.blue.withOpacity(0.5), blurRadius: 20, spreadRadius: 5)] : null,
       ),
       child: Center(
-        child: SingleChildScrollView( // Защита от переполнения
+        child: SingleChildScrollView(
           physics: const NeverScrollableScrollPhysics(),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(isMoving ? Icons.open_with_rounded : Icons.table_restaurant_rounded, 
-                color: isMoving ? Colors.blue : const Color(0xFFD4A043), 
-                size: (width * 0.4).clamp(12, 24)),
-              if (width >= 60 && height >= 60) ...[
+              Icon(
+                isMoving ? Icons.open_with_rounded : Icons.table_restaurant_rounded,
+                color: isMoving
+                    ? Colors.blue
+                    : hasWaiter
+                        ? const Color(0xFFD4A043)
+                        : Colors.white54,
+                size: (width * 0.35).clamp(12, 22),
+              ),
+              if (width >= 50 && height >= 50) ...[
                 const SizedBox(height: 2),
-                Text(table['label'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.outfit(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
-                Text('${table['seats'] ?? 4} 👤', style: GoogleFonts.outfit(color: Colors.white54, fontSize: 10)),
+                Text(
+                  table['label'] ?? '',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.outfit(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                ),
+                if (hasWaiter)
+                  Container(
+                    margin: const EdgeInsets.only(top: 2),
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFD4A043),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      waiterName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.outfit(color: Colors.black, fontSize: 9, fontWeight: FontWeight.bold),
+                    ),
+                  )
+                else
+                  Text('${table['seats'] ?? 4} 👤', style: GoogleFonts.outfit(color: Colors.white38, fontSize: 9)),
               ],
             ],
           ),
