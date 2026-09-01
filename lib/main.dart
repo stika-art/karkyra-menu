@@ -2653,25 +2653,75 @@ class _TableBookingScreenState extends State<TableBookingScreen> {
     }
   }
 
+  Map<String, dynamic>? _getBookingForTable(String tableId) {
+    for (var b in _activeBookings) {
+      if (b['table_id']?.toString() == tableId) {
+        return b;
+      }
+    }
+    return null;
+  }
+
   void _selectAndShowBooking(Map<String, dynamic> table) {
-    if (table['is_booked'] == true) {
-      // Ищем время когда освободится
-      final booking = _activeBookings.firstWhere(
-        (b) => b['table_id'].toString() == table['id'].toString(),
-        orElse: () => {},
-      );
-      final endTime = booking['end_time'];
-      final message = endTime != null 
-          ? 'Этот стол занят до $endTime' 
-          : 'Этот стол сейчас занят';
-          
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(message, style: GoogleFonts.outfit(fontWeight: FontWeight.w600)),
-          backgroundColor: Colors.redAccent,
-          behavior: SnackBarBehavior.floating,
-          margin: const EdgeInsets.all(20),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    final booking = _getBookingForTable(table['id'].toString());
+    
+    if (booking != null) {
+      final time = booking['booking_time'] ?? '';
+      final endTime = booking['end_time'] ?? '';
+      final label = table['label'] ?? 'Стол';
+      
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: const Color(0xFF1E1E1E),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(color: Colors.redAccent.withOpacity(0.15), shape: BoxShape.circle),
+                child: const Icon(Icons.event_busy_rounded, color: Colors.redAccent, size: 24),
+              ),
+              const SizedBox(width: 12),
+              Text('Стол №$label забронирован', style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Этот стол уже забронирован на текущее время:', style: GoogleFonts.outfit(color: Colors.white70, fontSize: 13)),
+              const SizedBox(height: 12),
+              if (time.isNotEmpty)
+                Row(
+                  children: [
+                    const Icon(Icons.access_time_rounded, color: Color(0xFFD4A043), size: 16),
+                    const SizedBox(width: 8),
+                    Text('Время брони: $time ${endTime.isNotEmpty ? "— $endTime" : ""}', 
+                      style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                  ],
+                ),
+              if (endTime.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text('⏳ Примерно освободится в $endTime', 
+                    style: GoogleFonts.outfit(color: Colors.greenAccent, fontWeight: FontWeight.bold, fontSize: 13)),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx),
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFD4A043), foregroundColor: Colors.black),
+              child: const Text('Понятно', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ],
         ),
       );
       return;
@@ -2684,15 +2734,16 @@ class _TableBookingScreenState extends State<TableBookingScreen> {
       backgroundColor: Colors.transparent,
       builder: (context) => _BookingSheet(table: table),
     ).then((_) {
-      // Обновляем данные с сервера, чтобы увидеть красный стол
       _load();
-      // Сбрасываем временный выбор
       setState(() => _tempSelectedTableId = null);
     });
   }
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final screenHeight = MediaQuery.of(context).size.height;
+
     return Scaffold(
       backgroundColor: const Color(0xFFF7F7F9),
       body: Stack(
@@ -2732,7 +2783,7 @@ class _TableBookingScreenState extends State<TableBookingScreen> {
                 ),
                 if (_floors.length > 1)
                   Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 40),
+                    margin: const EdgeInsets.symmetric(horizontal: 20),
                     padding: const EdgeInsets.all(4),
                     decoration: BoxDecoration(
                       color: Colors.white.withOpacity(0.1),
@@ -2746,49 +2797,56 @@ class _TableBookingScreenState extends State<TableBookingScreen> {
                       )).toList(),
                     ),
                   ),
-                const SizedBox(height: 30),
-                Center(
-                  child: Container(
-                    width: 360,
-                    height: 600,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(40),
-                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 40, offset: const Offset(0, 20))],
-                    ),
-                    child: _loading 
-                      ? const Center(child: CircularProgressIndicator(color: Colors.black12))
-                      : _selectedFloorId == null
-                        ? Center(child: Text('Схема залов не настроена', style: GoogleFonts.outfit(color: Colors.black26)))
-                        : ClipRRect(
-                            borderRadius: BorderRadius.circular(40),
-                            child: SingleChildScrollView(
-                              child: Column(
-                                children: [
-                                  _buildHallScheme(),
-                                  _buildExtraTablesList(),
-                                  const SizedBox(height: 100), 
-                                ],
+                const SizedBox(height: 16),
+                Expanded(
+                  child: Center(
+                    child: Container(
+                      width: screenWidth > 520 ? 480 : (screenWidth - 20),
+                      margin: const EdgeInsets.symmetric(horizontal: 10),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(32),
+                        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 40, offset: const Offset(0, 20))],
+                      ),
+                      child: _loading 
+                        ? const Center(child: CircularProgressIndicator(color: Colors.black12))
+                        : _selectedFloorId == null
+                          ? Center(child: Text('Схема залов не настроена', style: GoogleFonts.outfit(color: Colors.black26)))
+                          : ClipRRect(
+                              borderRadius: BorderRadius.circular(32),
+                              child: InteractiveViewer(
+                                minScale: 0.8,
+                                maxScale: 3.0,
+                                boundaryMargin: const EdgeInsets.all(20),
+                                child: SingleChildScrollView(
+                                  child: Column(
+                                    children: [
+                                      _buildHallScheme(),
+                                      _buildExtraTablesList(),
+                                      const SizedBox(height: 60), 
+                                    ],
+                                  ),
+                                ),
                               ),
                             ),
-                          ),
+                    ),
                   ),
                 ),
                 Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 20),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       _LegendItem(color: const Color(0xFF4CAF50), label: 'Свободно'),
                       const SizedBox(width: 20),
-                      _LegendItem(color: const Color(0xFFF44336), label: 'Занято'),
+                      _LegendItem(color: const Color(0xFFF44336), label: 'Забронировано'),
                     ],
                   ),
                 ),
                 Padding(
-                  padding: const EdgeInsets.only(bottom: 30),
+                  padding: const EdgeInsets.only(bottom: 20),
                   child: Text(
-                    'Выберите подходящее место для перехода к бронированию',
+                    'Нажмите на свободный стол (зеленый) для бронирования',
                     style: GoogleFonts.outfit(color: Colors.grey, fontSize: 11),
                   ),
                 ),
@@ -2805,14 +2863,12 @@ class _TableBookingScreenState extends State<TableBookingScreen> {
     
     final floor = _floors.firstWhere((f) => f['id'] == _selectedFloorId);
     final floorTables = _tables.where((t) => t['floor_id'] == _selectedFloorId).toList();
-    // Берем только те, у которых есть координаты
     final placedTables = floorTables.where((t) => (t['pos_x'] as num) > 0 || (t['pos_y'] as num) > 0).toList();
     final planUrl = floor['plan_url'];
 
     return Stack(
       clipBehavior: Clip.none,
       children: [
-        // Фон: Схема или сетка
         if (planUrl != null && planUrl.toString().isNotEmpty)
           Image.network(
             planUrl,
@@ -2826,7 +2882,6 @@ class _TableBookingScreenState extends State<TableBookingScreen> {
           )
         else
           _buildGridFallback(),
-        // Размещенные столы
         ...placedTables.map((table) {
           final double w = (table['width'] ?? 80).toDouble();
           final double h = (table['height'] ?? 80).toDouble();
@@ -2834,8 +2889,11 @@ class _TableBookingScreenState extends State<TableBookingScreen> {
           double x = (table['pos_x'] as num).toDouble();
           double y = (table['pos_y'] as num).toDouble();
 
-          // Ретро-совместимость с относительными координатами
           if (x < 2.0 && y < 2.0) { x *= 1000; y *= 1000; }
+
+          final booking = _getBookingForTable(table['id'].toString());
+          final bool isBooked = booking != null;
+          final endTime = booking?['end_time'] ?? '';
 
           return Positioned(
             left: x - (w / 2),
@@ -2848,11 +2906,11 @@ class _TableBookingScreenState extends State<TableBookingScreen> {
                   duration: const Duration(milliseconds: 300),
                   width: w, height: h,
                   decoration: BoxDecoration(
-                    color: (table['is_booked'] == true ? const Color(0xFFF44336) : const Color(0xFF4CAF50)).withOpacity(0.6),
+                    color: (isBooked ? const Color(0xFFF44336) : const Color(0xFF4CAF50)).withOpacity(0.7),
                     borderRadius: BorderRadius.circular(w == h ? 50 : 12),
                     boxShadow: [
                       BoxShadow(
-                        color: (table['is_booked'] == true ? const Color(0xFFF44336) : const Color(0xFF4CAF50)).withOpacity(0.4),
+                        color: (isBooked ? const Color(0xFFF44336) : const Color(0xFF4CAF50)).withOpacity(0.4),
                         blurRadius: 15,
                         spreadRadius: 2,
                       ),
@@ -2861,7 +2919,7 @@ class _TableBookingScreenState extends State<TableBookingScreen> {
                   child: Center(
                     child: w < 40 
                       ? Icon(
-                          table['is_booked'] == true ? Icons.person_off_rounded : Icons.chair_alt_rounded,
+                          isBooked ? Icons.event_busy_rounded : Icons.chair_alt_rounded,
                           color: Colors.white.withOpacity(0.8),
                           size: w * 0.5,
                         )
@@ -2870,8 +2928,8 @@ class _TableBookingScreenState extends State<TableBookingScreen> {
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Icon(
-                              table['is_booked'] == true ? Icons.person_off_rounded : Icons.chair_alt_rounded,
-                              color: Colors.white.withOpacity(0.8),
+                              isBooked ? Icons.event_busy_rounded : Icons.chair_alt_rounded,
+                              color: Colors.white.withOpacity(0.9),
                               size: w * 0.35,
                             ),
                             if (w >= 45) 
@@ -2879,9 +2937,21 @@ class _TableBookingScreenState extends State<TableBookingScreen> {
                                 child: Text(
                                   table['label'] ?? '',
                                   style: GoogleFonts.outfit(
-                                    color: Colors.white.withOpacity(0.9), 
+                                    color: Colors.white, 
                                     fontWeight: FontWeight.bold, 
                                     fontSize: (w * 0.15).clamp(8, 12),
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            if (isBooked && endTime.isNotEmpty && w >= 55)
+                              Flexible(
+                                child: Text(
+                                  'до $endTime',
+                                  style: GoogleFonts.outfit(
+                                    color: Colors.white.withOpacity(0.9), 
+                                    fontWeight: FontWeight.bold, 
+                                    fontSize: 8,
                                   ),
                                   overflow: TextOverflow.ellipsis,
                                 ),
@@ -2900,7 +2970,6 @@ class _TableBookingScreenState extends State<TableBookingScreen> {
 
   Widget _buildExtraTablesList() {
     final floorTables = _tables.where((t) => t['floor_id'] == _selectedFloorId).toList();
-    // Те, у кого нет координат
     final extraTables = floorTables.where((t) => (t['pos_x'] as num) <= 0 && (t['pos_y'] as num) <= 0).toList();
     
     if (extraTables.isEmpty) return const SizedBox.shrink();
@@ -2917,29 +2986,43 @@ class _TableBookingScreenState extends State<TableBookingScreen> {
           Wrap(
             spacing: 15,
             runSpacing: 15,
-            children: extraTables.map((table) => GestureDetector(
-              onTap: () => _selectAndShowBooking(table),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
-                width: 70, height: 70,
-                decoration: BoxDecoration(
-                  color: table['is_booked'] == true ? const Color(0xFFF44336) : const Color(0xFF4CAF50),
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    if (_tempSelectedTableId == table['id'])
-                      BoxShadow(color: const Color(0xFFD4A043).withOpacity(0.4), blurRadius: 10)
-                    else
-                      BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 5),
-                  ],
-                ),
-                child: Center(
-                  child: Text(
-                    table['label'] ?? '',
-                    style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+            children: extraTables.map((table) {
+              final booking = _getBookingForTable(table['id'].toString());
+              final bool isBooked = booking != null;
+              final endTime = booking?['end_time'] ?? '';
+
+              return GestureDetector(
+                onTap: () => _selectAndShowBooking(table),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  width: 70, height: 70,
+                  decoration: BoxDecoration(
+                    color: isBooked ? const Color(0xFFF44336) : const Color(0xFF4CAF50),
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      if (_tempSelectedTableId == table['id'])
+                        BoxShadow(color: const Color(0xFFD4A043).withOpacity(0.4), blurRadius: 10)
+                      else
+                        BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 5),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        table['label'] ?? '',
+                        style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                      ),
+                      if (isBooked && endTime.isNotEmpty)
+                        Text(
+                          'до $endTime',
+                          style: GoogleFonts.outfit(color: Colors.white70, fontSize: 8),
+                        ),
+                    ],
                   ),
                 ),
-              ),
-            )).toList(),
+              );
+            }).toList(),
           ),
         ],
       ),
