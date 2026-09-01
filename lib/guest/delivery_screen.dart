@@ -81,7 +81,7 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
 
       // 3. Очищаем корзину ПОСЛЕ того как всё успешно
       try {
-        cart.clearCartLocally();
+        await cart.clearTable();
       } catch (cartErr) {
         debugPrint('Cart clear error: $cartErr');
       }

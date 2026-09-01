@@ -102,9 +102,16 @@ void main() async {
       ),
     );
     
+    final prefs = await SharedPreferences.getInstance();
+    var deviceId = prefs.getString('device_id');
+    if (deviceId == null || deviceId.isEmpty) {
+      deviceId = 'u_${DateTime.now().millisecondsSinceEpoch}';
+      await prefs.setString('device_id', deviceId);
+    }
+
     final params = Uri.base.queryParameters;
-    final String tableId = params['table'] ?? '1';
     final bool isDeliveryMode = !params.containsKey('table');
+    final String tableId = isDeliveryMode ? 'delivery_$deviceId' : (params['table'] ?? '1');
 
     final String fullUrl = Uri.base.toString().toLowerCase();
 
