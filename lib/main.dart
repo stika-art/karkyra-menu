@@ -2418,85 +2418,100 @@ class _SharedCartScreenState extends State<SharedCartScreen> {
   void _onPressOrder(BuildContext context, CartProvider cart) {
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        decoration: const BoxDecoration(
-          color: Color(0xFF1E1E1E),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-        ),
-        padding: const EdgeInsets.all(28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFFD4A043).withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.qr_code_scanner_rounded, color: Color(0xFFD4A043), size: 32),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              "ПОДТВЕРЖДЕНИЕ ВАШЕГО ЗАКАЗА",
-              style: GoogleFonts.outfit(
-                color: Colors.white,
-                fontSize: 20,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 2,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              "Чтобы отправить заказ на кухню стола №${widget.tableNumber}, пожалуйста, отсканируйте QR-код на вашем столе для подтверждения вашего присутствия в ресторане.",
-              textAlign: TextAlign.center,
-              style: GoogleFonts.outfit(color: Colors.white70, fontSize: 13, height: 1.4),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              "Если вы находитесь дома, мы с радостью привезем вам этот заказ доставкой!",
-              textAlign: TextAlign.center,
-              style: GoogleFonts.outfit(color: const Color(0xFFD4A043), fontSize: 13, fontWeight: FontWeight.bold, height: 1.4),
-            ),
-            const SizedBox(height: 28),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: () {
-                  Navigator.pop(ctx);
-                  _scanTableQr(context, cart);
-                },
-                icon: const Icon(Icons.qr_code_scanner_rounded),
-                label: const Text("ОТКРЫТЬ КАМЕРУ (ПОДТВЕРДИТЬ СТОЛ)"),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFD4A043),
-                  foregroundColor: Colors.black,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                  textStyle: GoogleFonts.outfit(fontWeight: FontWeight.bold),
+      builder: (ctx) => SafeArea(
+        top: false,
+        child: Container(
+          decoration: const BoxDecoration(
+            color: Color(0xFF1E1E1E),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+          ),
+          padding: EdgeInsets.fromLTRB(24, 24, 24, 28 + MediaQuery.of(ctx).viewInsets.bottom),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
+                  ),
                 ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () {
-                  Navigator.pop(ctx); // Закрываем этот диалог
-                  Navigator.pop(context, 'show_delivery'); // Закрываем SharedCartScreen с возвращаемым значением!
-                },
-                icon: const Icon(Icons.delivery_dining_rounded),
-                label: const Text("ОФОРМИТЬ КАК ДОСТАВКУ"),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white,
-                  side: const BorderSide(color: Colors.white24, width: 1.5),
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                  textStyle: GoogleFonts.outfit(fontWeight: FontWeight.bold),
+                const SizedBox(height: 20),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFD4A043).withOpacity(0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.qr_code_scanner_rounded, color: Color(0xFFD4A043), size: 32),
                 ),
-              ),
+                const SizedBox(height: 16),
+                Text(
+                  "ПОДТВЕРЖДЕНИЕ ЗАКАЗА",
+                  style: GoogleFonts.outfit(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  "Чтобы отправить заказ на кухню стола №${widget.tableNumber}, пожалуйста, отсканируйте QR-код на вашем столе для подтверждения присутствия в ресторане.",
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.outfit(color: Colors.white70, fontSize: 13, height: 1.4),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  "Если вы находитесь дома, оформите как доставку!",
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.outfit(color: const Color(0xFFD4A043), fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      _scanTableQr(context, cart);
+                    },
+                    icon: const Icon(Icons.qr_code_scanner_rounded),
+                    label: const Text("ОТКРЫТЬ КАМЕРУ (ПОДТВЕРДИТЬ СТОЛ)"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFD4A043),
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      textStyle: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 14),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      Navigator.pop(context, 'show_delivery');
+                    },
+                    icon: const Icon(Icons.delivery_dining_rounded),
+                    label: const Text("ОФОРМИТЬ КАК ДОСТАВКУ"),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: const BorderSide(color: Colors.white24, width: 1.5),
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      textStyle: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 14),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -2523,6 +2538,7 @@ class _SharedCartScreenState extends State<SharedCartScreen> {
               ),
             );
           }
+          return;
         } else {
           if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(

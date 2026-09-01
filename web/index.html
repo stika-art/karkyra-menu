@@ -61,7 +61,7 @@
 
       overlay.innerHTML = `
         <div style="position: relative; width: 280px; height: 280px; border-radius: 32px; overflow: hidden; border: 2px solid rgba(212, 160, 67, 0.5); box-shadow: 0 0 40px rgba(0,0,0,0.8); background: black;">
-          <video id="qr-video" style="width: 100%; height: 100%; object-fit: cover;"></video>
+          <video id="qr-video" autoplay playsinline webkit-playsinline muted style="width: 100%; height: 100%; object-fit: cover;"></video>
           <div id="qr-laser" style="
             position: absolute;
             top: 0;
@@ -78,25 +78,25 @@
           <div style="position: absolute; bottom: 20px; right: 20px; width: 24px; height: 24px; border-bottom: 4px solid #D4A043; border-right: 4px solid #D4A043; border-bottom-right-radius: 4px;"></div>
         </div>
 
-        <h3 style="margin-top: 36px; font-weight: 900; letter-spacing: 2px; color: white; text-align: center; font-size: 18px;">ПОДТВЕРЖДЕНИЕ СТОЛА</h3>
-        <p style="margin-top: 10px; color: rgba(255,255,255,0.6); text-align: center; font-size: 13px; max-width: 260px; line-height: 1.5; font-weight: 500;">
-          Пожалуйста, наведите камеру на QR-код вашего стола для продолжения заказа
+        <h3 style="margin-top: 28px; font-weight: 900; letter-spacing: 2px; color: white; text-align: center; font-size: 18px;">ПОДТВЕРЖДЕНИЕ СТОЛА</h3>
+        <p style="margin-top: 8px; color: rgba(255,255,255,0.7); text-align: center; font-size: 13px; max-width: 280px; line-height: 1.5; font-weight: 500;">
+          Наведите камеру на QR-код стола для отправки заказа
         </p>
 
         <button id="qr-close-btn" style="
-          margin-top: 48px;
-          background: transparent;
-          border: 2px solid rgba(255,255,255,0.25);
+          margin-top: 32px;
+          background: rgba(255,255,255,0.1);
+          border: 1px solid rgba(255,255,255,0.3);
           color: white;
-          padding: 14px 40px;
-          border-radius: 16px;
+          padding: 12px 36px;
+          border-radius: 14px;
           font-weight: 800;
           cursor: pointer;
           font-size: 13px;
           letter-spacing: 1.5px;
           transition: all 0.2s ease;
           outline: none;
-        ">ОТМЕНА</button>
+        ">ЗАКРЫТЬ</button>
       `;
 
       var style = document.createElement('style');
@@ -107,7 +107,7 @@
           100% { top: 0%; }
         }
         #qr-close-btn:active {
-          background: rgba(255,255,255,0.1);
+          background: rgba(255,255,255,0.2);
           transform: scale(0.96);
         }
       `;
@@ -118,37 +118,64 @@
 
       var video = document.getElementById('qr-video');
       video.setAttribute('playsinline', 'true');
+      video.setAttribute('webkit-playsinline', 'true');
+      video.setAttribute('autoplay', 'true');
       video.setAttribute('muted', 'true');
+      video.playsInline = true;
       video.muted = true;
+      video.autoplay = true;
+
       var stream = null;
       var animationFrameId = null;
 
-      function startCamera(constraints) {
-        return navigator.mediaDevices.getUserMedia(constraints).then(function(s) {
-          stream = s;
-          video.srcObject = stream;
-          return video.play().then(function() {
-            animationFrameId = requestAnimationFrame(tick);
+      var constraintsList = [
+        { video: { facingMode: { ideal: 'environment' } }, audio: false },
+        { video: { facingMode: 'environment' }, audio: false },
+        { video: true, audio: false }
+      ];
+
+      function tryStartCamera(index) {
+        if (index >= constraintsList.length) {
+          alert("Не удалось включить камеру. Пожалуйста, разрешите доступ к камере в Настройках Safari на iPhone.");
+          cleanup(null);
+          return;
+        }
+
+        navigator.mediaDevices.getUserMedia(constraintsList[index])
+          .then(function(s) {
+            stream = s;
+            video.srcObject = stream;
+            var playPromise = video.play();
+            if (playPromise !== undefined) {
+              playPromise.then(function() {
+                animationFrameId = requestAnimationFrame(tick);
+              }).catch(function(e) {
+                console.warn("Video play error:", e);
+                animationFrameId = requestAnimationFrame(tick);
+              });
+            } else {
+              animationFrameId = requestAnimationFrame(tick);
+            }
+          })
+          .catch(function(err) {
+            console.warn("Camera constraint failed (" + index + "):", err);
+            tryStartCamera(index + 1);
           });
-        });
       }
 
-      startCamera({ video: { facingMode: { ideal: 'environment' } } })
-        .catch(function() {
-          return startCamera({ video: true });
-        })
-        .catch(function(err) {
-          console.error("Camera access error:", err);
-          cleanup(null);
-          alert("Не удалось получить доступ к камере. Пожалуйста, разрешите доступ к камере в настройках браузера.");
-        });
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        tryStartCamera(0);
+      } else {
+        alert("Камера не поддерживается вашим браузером.");
+        cleanup(null);
+      }
 
       document.getElementById('qr-close-btn').addEventListener('click', function() {
         cleanup(null);
       });
 
       function tick() {
-        if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        if (video.readyState >= video.HAVE_CURRENT_DATA && video.videoWidth > 0) {
           var canvas = document.createElement('canvas');
           canvas.width = video.videoWidth;
           canvas.height = video.videoHeight;
@@ -156,13 +183,15 @@
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
           
           var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          var code = jsQR(imageData.data, imageData.width, imageData.height, {
-            inversionAttempts: "dontInvert",
-          });
+          if (typeof jsQR !== 'undefined') {
+            var code = jsQR(imageData.data, imageData.width, imageData.height, {
+              inversionAttempts: "dontInvert",
+            });
 
-          if (code) {
-            cleanup(code.data);
-            return;
+            if (code && code.data) {
+              cleanup(code.data);
+              return;
+            }
           }
         }
         animationFrameId = requestAnimationFrame(tick);
