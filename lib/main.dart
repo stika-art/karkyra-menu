@@ -2816,35 +2816,37 @@ class _TableBookingScreenState extends State<TableBookingScreen> {
                 const SizedBox(height: 16),
                 Expanded(
                   child: Center(
-                    child: Container(
-                      width: screenWidth > 520 ? 440 : (screenWidth - 20),
-                      margin: const EdgeInsets.symmetric(horizontal: 10),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF141414),
-                        borderRadius: BorderRadius.circular(32),
-                        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 40, offset: const Offset(0, 20))],
-                      ),
-                      child: _loading 
-                        ? const Center(child: CircularProgressIndicator(color: Color(0xFFD4A043)))
-                        : _selectedFloorId == null
-                          ? Center(child: Text('Схема залов не настроена', style: GoogleFonts.outfit(color: Colors.white38)))
-                          : ClipRRect(
-                              borderRadius: BorderRadius.circular(32),
-                              child: InteractiveViewer(
-                                minScale: 0.8,
-                                maxScale: 3.5,
-                                boundaryMargin: const EdgeInsets.all(20),
-                                child: SingleChildScrollView(
-                                  child: Column(
-                                    children: [
-                                      _buildHallScheme(),
-                                      _buildExtraTablesList(),
-                                      const SizedBox(height: 40), 
-                                    ],
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Container(
+                        width: 360,
+                        height: 600,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF141414),
+                          borderRadius: BorderRadius.circular(24),
+                          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.25), blurRadius: 40, offset: const Offset(0, 20))],
+                        ),
+                        child: _loading 
+                          ? const Center(child: CircularProgressIndicator(color: Color(0xFFD4A043)))
+                          : _selectedFloorId == null
+                            ? Center(child: Text('Схема залов не настроена', style: GoogleFonts.outfit(color: Colors.white38)))
+                            : ClipRRect(
+                                borderRadius: BorderRadius.circular(24),
+                                child: InteractiveViewer(
+                                  minScale: 0.8,
+                                  maxScale: 3.5,
+                                  child: SingleChildScrollView(
+                                    child: Column(
+                                      children: [
+                                        _buildHallScheme(),
+                                        _buildExtraTablesList(),
+                                        const SizedBox(height: 40), 
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
+                      ),
                     ),
                   ),
                 ),
