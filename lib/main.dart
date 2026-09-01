@@ -44,6 +44,27 @@ Future<String?> scanQrCodeFromCameraGlobal() {
   return completer.future;
 }
 
+String? parseTableFromQr(String raw) {
+  final trimmed = raw.trim();
+  if (trimmed.isEmpty) return null;
+  
+  try {
+    final uri = Uri.parse(trimmed);
+    if (uri.queryParameters.containsKey('table')) {
+      final val = uri.queryParameters['table']?.trim();
+      if (val != null && val.isNotEmpty) return val;
+    }
+  } catch (_) {}
+
+  final regExp = RegExp(r'(?:table|stol|стол)[=_ ]?([a-zA-Z0-9_-]+)', caseSensitive: false);
+  final match = regExp.firstMatch(trimmed);
+  if (match != null) {
+    return match.group(1);
+  }
+
+  return trimmed;
+}
+
 List<Category> get categories {
   // Получаем список из базы и убираем оттуда категорию с id '0', если она там есть
   final dbCats = MenuDataService.categories.where((c) => c.id != '0').toList();
@@ -224,10 +245,9 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
     final scannedResult = await scanQrCodeFromCameraGlobal();
     if (scannedResult != null && scannedResult.isNotEmpty) {
       try {
-        final uri = Uri.parse(scannedResult);
-        final table = uri.queryParameters['table'];
+        final table = parseTableFromQr(scannedResult);
         
-        if (table != null && table == widget.tableId) {
+        if (table != null && (table == widget.tableId || table == 'table_${widget.tableId}')) {
           // Успешно подтверждено! Сбрасываем таймер и возвращаем режим стола
           _initSession(); // Перезапустит 30-минутный таймер и обновит SharedPreferences
           setState(() {
@@ -646,7 +666,7 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
           ),
           const SizedBox(height: 0),
           Text(
-            'РЕСТО-ЧАЙКАНА',
+            'CAFE',
             textAlign: TextAlign.center,
             style: GoogleFonts.oswald(
               color: Colors.white38,
@@ -2479,10 +2499,9 @@ class _SharedCartScreenState extends State<SharedCartScreen> {
     final result = await scanQrCodeFromCameraGlobal();
     if (result != null && result.isNotEmpty) {
       try {
-        final uri = Uri.parse(result);
-        final table = uri.queryParameters['table'];
+        final table = parseTableFromQr(result);
         
-        if (table != null && table == widget.tableNumber) {
+        if (table != null && (table == widget.tableNumber || table == 'table_${widget.tableNumber}')) {
           await cart.confirmOrder();
           
           if (context.mounted) {

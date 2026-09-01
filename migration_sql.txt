@@ -45,3 +45,18 @@ INSERT INTO dish_ingredients (dish_id, ingredient_id) VALUES
 
 -- Баннер
 -- Видео для баннера не найдено ;
+
+-- ==========================================
+-- RLS Политики доступа (Row Level Security)
+-- Run this in Supabase SQL Editor if you face permission errors on DELETE/INSERT/UPDATE
+-- ==========================================
+
+-- Включаем RLS и разрешаем все операции (SELECT, INSERT, UPDATE, DELETE) для таблицы banners:
+ALTER TABLE banners ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow all for banners" ON banners;
+CREATE POLICY "Allow all for banners" ON banners FOR ALL TO public USING (true) WITH CHECK (true);
+
+-- Права для Storage бакета 'media' (для удаления файлов видео/фото):
+DROP POLICY IF EXISTS "Allow public delete from media bucket" ON storage.objects;
+CREATE POLICY "Allow public delete from media bucket" ON storage.objects FOR DELETE TO public USING (bucket_id = 'media');
+

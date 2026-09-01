@@ -26,7 +26,7 @@
 
         document.title = 'Bonum — Админ';
       } else {
-        document.title = 'Bonum — Ресто-Чайхана';
+        document.title = 'Bonum — Cafe';
       }
     })();
   </script>
@@ -117,16 +117,25 @@
       setTimeout(function() { overlay.style.opacity = '1'; }, 50);
 
       var video = document.getElementById('qr-video');
+      video.setAttribute('playsinline', 'true');
+      video.setAttribute('muted', 'true');
+      video.muted = true;
       var stream = null;
       var animationFrameId = null;
 
-      navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
-        .then(function(s) {
+      function startCamera(constraints) {
+        return navigator.mediaDevices.getUserMedia(constraints).then(function(s) {
           stream = s;
           video.srcObject = stream;
-          video.setAttribute('playsinline', true);
-          video.play();
-          animationFrameId = requestAnimationFrame(tick);
+          return video.play().then(function() {
+            animationFrameId = requestAnimationFrame(tick);
+          });
+        });
+      }
+
+      startCamera({ video: { facingMode: { ideal: 'environment' } } })
+        .catch(function() {
+          return startCamera({ video: true });
         })
         .catch(function(err) {
           console.error("Camera access error:", err);
