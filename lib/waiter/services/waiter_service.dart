@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -76,9 +77,14 @@ class WaiterService {
 
   static Future<List<Map<String, dynamic>>> fetchWaiters() async {
     try {
-      final res = await _client.from('waiters').select().order('name');
+      final res = await _client
+          .from('waiters')
+          .select()
+          .order('name')
+          .timeout(const Duration(seconds: 5));
       return List<Map<String, dynamic>>.from(res);
     } catch (e) {
+      debugPrint('fetchWaiters error: $e');
       return [];
     }
   }
@@ -89,18 +95,28 @@ class WaiterService {
 
   static Future<List<Map<String, dynamic>>> fetchFloors() async {
     try {
-      final res = await _client.from('floors').select().order('sort_order');
+      final res = await _client
+          .from('floors')
+          .select()
+          .order('sort_order')
+          .timeout(const Duration(seconds: 5));
       return List<Map<String, dynamic>>.from(res);
     } catch (e) {
+      debugPrint('fetchFloors error: $e');
       return [];
     }
   }
 
   static Future<List<Map<String, dynamic>>> fetchTables() async {
     try {
-      final res = await _client.from('restaurant_tables').select().order('label');
+      final res = await _client
+          .from('restaurant_tables')
+          .select()
+          .order('label')
+          .timeout(const Duration(seconds: 5));
       return List<Map<String, dynamic>>.from(res);
     } catch (e) {
+      debugPrint('fetchTables error: $e');
       return [];
     }
   }
