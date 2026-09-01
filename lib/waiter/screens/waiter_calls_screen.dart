@@ -77,18 +77,15 @@ class _WaiterCallsScreenState extends State<WaiterCallsScreen> {
     final waiterId = widget.currentWaiter['id'];
 
     final myAssignedTables = _tables.where((t) => t['waiter_id']?.toString() == waiterId?.toString()).toList();
-    final myTableIds = myAssignedTables.map((t) => t['id']?.toString()).toSet();
-    final myTableLabels = myAssignedTables.map((t) => t['label']?.toString()).toSet();
 
     // Фильтрация: вызовы ТОЛЬКО своих столов
     final activeCalls = _calls.where((c) {
       if (c['status'] == 'completed' || c['status'] == 'done') return false;
-      final tid = (c['table_id'] ?? '').toString();
-      final table = c['restaurant_tables'];
-      if (table != null && table is Map && table['waiter_id']?.toString() == waiterId) {
-        return true;
-      }
-      return myTableIds.contains(tid) || myTableLabels.contains(tid);
+      return WaiterService.isTableAssignedToWaiter(
+        itemTableId: c['table_id'],
+        waiterId: waiterId,
+        allTables: _tables,
+      );
     }).toList();
 
     return Scaffold(

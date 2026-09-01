@@ -126,17 +126,14 @@ class _WaiterOrdersScreenState extends State<WaiterOrdersScreen> with SingleTick
     final waiterId = widget.currentWaiter['id'];
 
     final myAssignedTables = _tables.where((t) => t['waiter_id']?.toString() == waiterId?.toString()).toList();
-    final myTableIds = myAssignedTables.map((t) => t['id']?.toString()).toSet();
-    final myTableLabels = myAssignedTables.map((t) => t['label']?.toString()).toSet();
 
-    // Фильтрация: заказы ТОЛЬКО своих столов
+    // Фильтрация: заказы ТОЛЬКО своих столов через универсальный матчер
     final myOrders = _orders.where((o) {
-      final tid = (o['table_id'] ?? '').toString();
-      final table = o['restaurant_tables'];
-      if (table != null && table is Map && table['waiter_id']?.toString() == waiterId) {
-        return true;
-      }
-      return myTableIds.contains(tid) || myTableLabels.contains(tid);
+      return WaiterService.isTableAssignedToWaiter(
+        itemTableId: o['table_id'],
+        waiterId: waiterId,
+        allTables: _tables,
+      );
     }).toList();
 
     final tablesStr = myAssignedTables.map((t) => t['label'] ?? 'Стол').join(', ');

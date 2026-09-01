@@ -178,21 +178,60 @@ class WaiterService {
   // Заказы (orders_new & table_sessions)
   // ==========================================
 
+  /// Универсальная проверка: принадлежит ли стол данному официанту
+  static bool isTableAssignedToWaiter({
+    required dynamic itemTableId,
+    required String? waiterId,
+    required List<Map<String, dynamic>> allTables,
+  }) {
+    if (itemTableId == null || waiterId == null || waiterId.isEmpty) return false;
+
+    final rawItemTid = itemTableId.toString().trim();
+    if (rawItemTid.isEmpty) return false;
+    
+    final cleanItemNum = rawItemTid.replaceAll(RegExp(r'[^0-9]'), '');
+
+    for (var t in allTables) {
+      if (t['waiter_id']?.toString() != waiterId.toString()) continue;
+
+      final tId = (t['id'] ?? '').toString().trim();
+      final tLabel = (t['label'] ?? '').toString().trim();
+      final cleanLabelNum = tLabel.replaceAll(RegExp(r'[^0-9]'), '');
+
+      // Прямое совпадение ID или Label
+      if (rawItemTid.toLowerCase() == tId.toLowerCase() || rawItemTid.toLowerCase() == tLabel.toLowerCase()) {
+        return true;
+      }
+
+      // Совпадение по номеру стола (например '4' и 'Стол 4' или 'Стол №4')
+      if (cleanItemNum.isNotEmpty && cleanLabelNum.isNotEmpty && cleanItemNum == cleanLabelNum) {
+        return true;
+      }
+
+      // Вариации написания
+      if (rawItemTid == 'table_$cleanLabelNum' || 
+          rawItemTid == 'Стол $cleanLabelNum' || 
+          rawItemTid == 'stol_$cleanLabelNum') {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  // ==========================================
+  // Заказы (orders_new)
+  // ==========================================
+
   static Future<List<Map<String, dynamic>>> fetchOrders() async {
     try {
       final res = await _client
           .from('orders_new')
-          .select('*, restaurant_tables(label, waiter_id)')
+          .select()
           .order('created_at', ascending: false);
       return List<Map<String, dynamic>>.from(res);
     } catch (e) {
-      // Резервный запрос, если нет связи
-      try {
-        final res = await _client.from('orders_new').select().order('created_at', ascending: false);
-        return List<Map<String, dynamic>>.from(res);
-      } catch (_) {
-        return [];
-      }
+      return [];
     }
   }
 
@@ -226,16 +265,11 @@ class WaiterService {
     try {
       final res = await _client
           .from('waiter_calls')
-          .select('*, restaurant_tables(label, waiter_id)')
+          .select()
           .order('created_at', ascending: false);
       return List<Map<String, dynamic>>.from(res);
     } catch (e) {
-      try {
-        final res = await _client.from('waiter_calls').select().order('created_at', ascending: false);
-        return List<Map<String, dynamic>>.from(res);
-      } catch (_) {
-        return [];
-      }
+      return [];
     }
   }
 
@@ -249,32 +283,28 @@ class WaiterService {
   }
 
   // ==========================================
-  // Бронирования (table_reservations)
+  // Бронирования (bookings)
   // ==========================================
 
   static Future<List<Map<String, dynamic>>> fetchReservations() async {
     try {
       final res = await _client
-          .from('table_reservations')
-          .select('*, restaurant_tables(label, waiter_id)')
+          .from('bookings')
+          .select()
+          .inFilter('status', ['confirmed', 'accepted'])
           .order('created_at', ascending: false);
       return List<Map<String, dynamic>>.from(res);
     } catch (e) {
-      try {
-        final res = await _client.from('table_reservations').select().order('created_at', ascending: false);
-        return List<Map<String, dynamic>>.from(res);
-      } catch (_) {
-        return [];
-      }
+      return [];
     }
   }
 
-  static Future<bool> updateReservationStatus(String reservationId, String status) async {
+  static Future<bool> updateReservationStatus(String bookingId, String status) async {
     try {
       await _client
-          .from('table_reservations')
+          .from('bookings')
           .update({'status': status})
-          .eq('id', reservationId);
+          .eq('id', bookingId);
       return true;
     } catch (e) {
       return false;

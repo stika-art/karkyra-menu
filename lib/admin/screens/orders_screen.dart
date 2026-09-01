@@ -25,6 +25,8 @@ class _OrdersScreenState extends State<OrdersScreen>
   List<Map<String, dynamic>> _waiterCalls = [];
   List<Map<String, dynamic>> _bookings = [];
   Map<String, String> _tablesMap = {}; // ID -> Label
+  List<Map<String, dynamic>> _rawTables = [];
+  List<Map<String, dynamic>> _waitersList = [];
   bool _loading = true;
   RealtimeChannel? _realtimeChannel;
   Timer? _notifyTimer;
@@ -108,14 +110,10 @@ class _OrdersScreenState extends State<OrdersScreen>
           schema: 'public',
           table: 'bookings',
           callback: (payload) {
-            if (payload.eventType == PostgresChangeEvent.insert) {
-              _playSound();
-              _showSystemNotification('Новая бронь!', 'Гость ${payload.newRecord['customer_name']} забронировал стол');
-            }
             _loadOrders(silent: true);
           },
         )
-        .subscribe((status, error) {
+        .subscribe((status, [error]) {
           debugPrint('REALTIME STATUS: $status');
           if (error != null) {
             debugPrint('REALTIME ERROR: $error');
@@ -168,6 +166,27 @@ class _OrdersScreenState extends State<OrdersScreen>
     }
   }
 
+  String _getAssignedWaiterName(String? tableId) {
+    if (tableId == null || tableId.isEmpty) return '';
+    final rawTid = tableId.trim();
+    final cleanNum = rawTid.replaceAll(RegExp(r'[^0-9]'), '');
+
+    for (var t in _rawTables) {
+      final tId = (t['id'] ?? '').toString();
+      final tLabel = (t['label'] ?? '').toString();
+      final cleanLabelNum = tLabel.replaceAll(RegExp(r'[^0-9]'), '');
+
+      if (rawTid == tId || rawTid == tLabel || (cleanNum.isNotEmpty && cleanNum == cleanLabelNum)) {
+        final wId = t['waiter_id']?.toString();
+        if (wId != null && wId.isNotEmpty) {
+          final w = _waitersList.firstWhere((item) => item['id']?.toString() == wId, orElse: () => {});
+          return w['name'] ?? 'Официант';
+        }
+      }
+    }
+    return '';
+  }
+
   Future<void> _loadOrders({bool silent = false}) async {
     if (!silent) setState(() => _loading = true);
     try {
@@ -199,13 +218,19 @@ class _OrdersScreenState extends State<OrdersScreen>
 
       final tablesRes = await Supabase.instance.client
           .from('restaurant_tables')
-          .select('id, label');
+          .select('id, label, waiter_id');
+
+      final waitersRes = await Supabase.instance.client
+          .from('waiters')
+          .select('id, name');
 
       setState(() {
         _tableOrders = List<Map<String, dynamic>>.from(tableRes);
         _deliveryOrders = List<Map<String, dynamic>>.from(deliveryRes);
         _waiterCalls = List<Map<String, dynamic>>.from(callsRes);
         _bookings = List<Map<String, dynamic>>.from(bookingsRes);
+        _rawTables = List<Map<String, dynamic>>.from(tablesRes);
+        _waitersList = List<Map<String, dynamic>>.from(waitersRes);
         
         _tablesMap = {
           for (var t in (tablesRes as List)) 
@@ -453,15 +478,17 @@ class _OrdersScreenState extends State<OrdersScreen>
             children: grouped.entries.map((entry) {
               final tableId = entry.key;
               final items = entry.value;
+              final waiterName = _getAssignedWaiterName(tableId);
+              final bool isAcceptedByWaiter = items.any((it) => it['status'] == 'processing' || it['status'] == 'served');
 
               return Container(
                 margin: const EdgeInsets.only(bottom: 16),
                 decoration: BoxDecoration(
                   color: const Color(0xFF1E1E1E),
                   borderRadius: BorderRadius.circular(16),
-                  border: items.any((it) => it['status'] == 'ordering' || it['status'] == 'confirmed')
-                      ? Border.all(color: const Color(0xFFD4A043).withOpacity(0.4))
-                      : null,
+                  border: isAcceptedByWaiter
+                      ? Border.all(color: Colors.greenAccent.withOpacity(0.4))
+                      : Border.all(color: const Color(0xFFD4A043).withOpacity(0.4)),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -473,49 +500,85 @@ class _OrdersScreenState extends State<OrdersScreen>
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                             decoration: BoxDecoration(
-                              color: items.any((it) => it['status'] == 'ordering' || it['status'] == 'confirmed')
-                                  ? const Color(0xFFD4A043)
-                                  : Colors.blue,
+                              color: isAcceptedByWaiter
+                                  ? Colors.green
+                                  : const Color(0xFFD4A043),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
                               'Стол №$tableId',
                               style: GoogleFonts.outfit(
-                                color: Colors.black,
+                                color: isAcceptedByWaiter ? Colors.white : Colors.black,
                                 fontWeight: FontWeight.bold,
                                 fontSize: 13,
                               ),
                             ),
                           ),
-                          const SizedBox(width: 8),
+                          if (waiterName.isNotEmpty) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.08),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.person_rounded, color: Color(0xFFD4A043), size: 14),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    waiterName,
+                                    style: GoogleFonts.outfit(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                           const Spacer(),
                           IconButton(
                             onPressed: () => _clearTableOrders(tableId),
                             icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 20),
                             tooltip: 'Очистить стол',
                           ),
-                          if (items.any((it) => it['status'] == 'ordering' || it['status'] == 'confirmed'))
+                          if (isAcceptedByWaiter)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.green.withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: Colors.greenAccent.withOpacity(0.4)),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.check_circle_rounded, color: Colors.greenAccent, size: 14),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Принято официантом',
+                                    style: GoogleFonts.outfit(color: Colors.greenAccent, fontSize: 12, fontWeight: FontWeight.bold),
+                                  ),
+                                ],
+                              ),
+                            )
+                          else
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                               decoration: BoxDecoration(
                                 color: Colors.orange.withOpacity(0.15),
                                 borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: Colors.orangeAccent.withOpacity(0.4)),
                               ),
-                              child: Text(
-                                'Ожидает подтверждения',
-                                style: GoogleFonts.outfit(color: Colors.orange, fontSize: 12),
-                              ),
-                            )
-                          else if (items.any((it) => it['status'] == 'processing'))
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: Colors.blue.withOpacity(0.15),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                'Принято, готовим',
-                                style: GoogleFonts.outfit(color: Colors.blue, fontSize: 12),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.hourglass_top_rounded, color: Colors.orangeAccent, size: 14),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Ожидает официанта',
+                                    style: GoogleFonts.outfit(color: Colors.orangeAccent, fontSize: 12),
+                                  ),
+                                ],
                               ),
                             ),
                         ],
@@ -790,6 +853,9 @@ class _OrdersScreenState extends State<OrdersScreen>
         final call = _waiterCalls[i];
         final time = DateTime.tryParse(call['created_at'] ?? '')?.toLocal();
         final timeStr = time != null ? '${time.hour}:${time.minute.toString().padLeft(2, '0')}' : '--:--';
+        final tableId = call['table_id']?.toString() ?? '';
+        final waiterName = _getAssignedWaiterName(tableId);
+        final isAccepted = call['status'] == 'accepted';
 
         return Container(
           margin: const EdgeInsets.only(bottom: 12),
@@ -797,27 +863,46 @@ class _OrdersScreenState extends State<OrdersScreen>
           decoration: BoxDecoration(
             color: const Color(0xFF1E1E1E),
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFFD4A043).withOpacity(0.3)),
+            border: Border.all(color: isAccepted ? Colors.greenAccent.withOpacity(0.4) : const Color(0xFFD4A043).withOpacity(0.3)),
           ),
           child: Row(
             children: [
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFD4A043).withOpacity(0.1),
+                  color: isAccepted ? Colors.green.withOpacity(0.15) : const Color(0xFFD4A043).withOpacity(0.1),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.notifications_active_rounded, color: Color(0xFFD4A043)),
+                child: Icon(isAccepted ? Icons.check_circle_rounded : Icons.notifications_active_rounded, 
+                  color: isAccepted ? Colors.greenAccent : const Color(0xFFD4A043)),
               ),
               const SizedBox(width: 16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('СТОЛ №${call['table_id']}',
-                      style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
-                    Text('Вызов в $timeStr',
-                      style: GoogleFonts.outfit(color: Colors.white38, fontSize: 14)),
+                    Row(
+                      children: [
+                        Text('СТОЛ №$tableId',
+                          style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
+                        if (waiterName.isNotEmpty) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.08),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(waiterName, style: GoogleFonts.outfit(color: const Color(0xFFD4A043), fontSize: 12)),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      isAccepted ? '✅ Официант принял вызов ($timeStr)' : '⏳ Ожидает официанта ($timeStr)',
+                      style: GoogleFonts.outfit(color: isAccepted ? Colors.greenAccent : Colors.orangeAccent, fontSize: 13, fontWeight: FontWeight.bold),
+                    ),
                   ],
                 ),
               ),
@@ -861,30 +946,56 @@ class _OrdersScreenState extends State<OrdersScreen>
       itemCount: _bookings.length,
       itemBuilder: (context, index) {
         final b = _bookings[index];
+        final tableId = b['table_id']?.toString() ?? '';
+        final waiterName = _getAssignedWaiterName(tableId);
+        final isAccepted = b['status'] == 'accepted';
+
         return Container(
           margin: const EdgeInsets.only(bottom: 12),
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: const Color(0xFF1E1E1E),
             borderRadius: BorderRadius.circular(16),
+            border: isAccepted ? Border.all(color: Colors.greenAccent.withOpacity(0.3)) : null,
           ),
           child: Row(
             children: [
               Container(
                 width: 50, height: 50,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFD4A043).withOpacity(0.1),
+                  color: isAccepted ? Colors.green.withOpacity(0.15) : const Color(0xFFD4A043).withOpacity(0.1),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Icon(Icons.event_seat_rounded, color: Color(0xFFD4A043)),
+                child: Icon(isAccepted ? Icons.check_circle_rounded : Icons.event_seat_rounded, 
+                  color: isAccepted ? Colors.greenAccent : const Color(0xFFD4A043)),
               ),
               const SizedBox(width: 16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Гость: ${b['customer_name']}', 
-                      style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Гость: ${b['customer_name']}', 
+                          style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: isAccepted ? Colors.green.withOpacity(0.15) : Colors.orange.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            isAccepted ? '✅ Принято официантом' : '⏳ Ожидает официанта',
+                            style: GoogleFonts.outfit(
+                              color: isAccepted ? Colors.greenAccent : Colors.orangeAccent,
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                     Text('Тел: ${b['customer_phone']}', 
                       style: GoogleFonts.outfit(color: Colors.white54, fontSize: 14)),
                     const SizedBox(height: 8),
@@ -921,6 +1032,18 @@ class _OrdersScreenState extends State<OrdersScreen>
                             style: GoogleFonts.outfit(color: const Color(0xFFD4A043), fontWeight: FontWeight.bold, fontSize: 12),
                           ),
                         ),
+                        if (waiterName.isNotEmpty)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.08),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              '👤 $waiterName',
+                              style: GoogleFonts.outfit(color: Colors.white70, fontSize: 11),
+                            ),
+                          ),
                       ],
                     ),
                     const SizedBox(height: 12),
