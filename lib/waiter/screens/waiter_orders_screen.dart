@@ -17,6 +17,7 @@ class _WaiterOrdersScreenState extends State<WaiterOrdersScreen> with SingleTick
   late TabController _tabController;
   List<Map<String, dynamic>> _orders = [];
   bool _loading = true;
+  List<Map<String, dynamic>> _tables = [];
   RealtimeChannel? _realtimeChannel;
 
   @override
@@ -51,9 +52,11 @@ class _WaiterOrdersScreenState extends State<WaiterOrdersScreen> with SingleTick
   Future<void> _loadOrders({bool silent = false}) async {
     if (!silent) setState(() => _loading = true);
     final orders = await WaiterService.fetchOrders();
+    final tables = await WaiterService.fetchTables();
     if (mounted) {
       setState(() {
         _orders = orders;
+        _tables = tables;
         _loading = false;
       });
     }
@@ -122,40 +125,81 @@ class _WaiterOrdersScreenState extends State<WaiterOrdersScreen> with SingleTick
   Widget build(BuildContext context) {
     final waiterId = widget.currentWaiter['id'];
 
-    // Фильтрация заказов
+    final myAssignedTables = _tables.where((t) => t['waiter_id']?.toString() == waiterId?.toString()).toList();
+    final myTableIds = myAssignedTables.map((t) => t['id']?.toString()).toSet();
+    final myTableLabels = myAssignedTables.map((t) => t['label']?.toString()).toSet();
+
+    // Фильтрация: заказы ТОЛЬКО своих столов
     final myOrders = _orders.where((o) {
+      final tid = (o['table_id'] ?? '').toString();
       final table = o['restaurant_tables'];
-      if (table != null && table is Map) {
-        return table['waiter_id']?.toString() == waiterId?.toString();
+      if (table != null && table is Map && table['waiter_id']?.toString() == waiterId) {
+        return true;
       }
-      return false;
+      return myTableIds.contains(tid) || myTableLabels.contains(tid);
     }).toList();
+
+    final tablesStr = myAssignedTables.map((t) => t['label'] ?? 'Стол').join(', ');
 
     return Scaffold(
       backgroundColor: const Color(0xFF000000),
       body: SafeArea(
         child: Column(
           children: [
-            // Вкладки "Мои столы" / "Все заказы"
+            // Информационный баннер закрепленных столов
             Container(
-              margin: const EdgeInsets.all(16),
+              margin: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
                 color: const Color(0xFF1C1C1E),
                 borderRadius: BorderRadius.circular(16),
-              ),
-              child: TabBar(
-                controller: _tabController,
-                indicator: BoxDecoration(
-                  color: const Color(0xFFD4A043),
-                  borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: myAssignedTables.isNotEmpty
+                      ? const Color(0xFFD4A043).withOpacity(0.4)
+                      : Colors.redAccent.withOpacity(0.4),
                 ),
-                labelColor: Colors.black,
-                unselectedLabelColor: Colors.white70,
-                labelStyle: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 14),
-                unselectedLabelStyle: GoogleFonts.outfit(fontSize: 14),
-                tabs: [
-                  Tab(text: 'Мои заказы (${myOrders.length})'),
-                  Tab(text: 'Все заказы (${_orders.length})'),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    myAssignedTables.isNotEmpty ? Icons.table_restaurant_rounded : Icons.warning_amber_rounded,
+                    color: myAssignedTables.isNotEmpty ? const Color(0xFFD4A043) : Colors.redAccent,
+                    size: 22,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          myAssignedTables.isNotEmpty ? 'Ваши столы ($tablesStr)' : 'Нет закрепленных столов',
+                          style: GoogleFonts.outfit(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                        Text(
+                          myAssignedTables.isNotEmpty
+                              ? 'Отображаются заказы только ваших столов'
+                              : 'Закрепите столы во вкладке «Столы» для приема заказов',
+                          style: GoogleFonts.outfit(color: Colors.white54, fontSize: 11),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (myOrders.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFD4A043),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        '${myOrders.length}',
+                        style: GoogleFonts.outfit(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 12),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -163,12 +207,11 @@ class _WaiterOrdersScreenState extends State<WaiterOrdersScreen> with SingleTick
             Expanded(
               child: _loading
                   ? const Center(child: CircularProgressIndicator(color: Color(0xFFD4A043)))
-                  : TabBarView(
-                      controller: _tabController,
-                      children: [
-                        _buildOrdersList(myOrders, emptyMessage: 'У вас пока нет активных заказов'),
-                        _buildAllOrdersTab(_orders),
-                      ],
+                  : _buildOrdersList(
+                      myOrders,
+                      emptyMessage: myAssignedTables.isEmpty
+                          ? 'Закрепите столы во вкладке «Столы», чтобы видеть их заказы'
+                          : 'На ваших столах пока нет активных заказов',
                     ),
             ),
           ],

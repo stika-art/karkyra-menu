@@ -15,6 +15,7 @@ class WaiterCallsScreen extends StatefulWidget {
 
 class _WaiterCallsScreenState extends State<WaiterCallsScreen> {
   List<Map<String, dynamic>> _calls = [];
+  List<Map<String, dynamic>> _tables = [];
   bool _loading = true;
   RealtimeChannel? _realtimeChannel;
 
@@ -48,9 +49,11 @@ class _WaiterCallsScreenState extends State<WaiterCallsScreen> {
   Future<void> _loadCalls({bool silent = false}) async {
     if (!silent) setState(() => _loading = true);
     final calls = await WaiterService.fetchWaiterCalls();
+    final tables = await WaiterService.fetchTables();
     if (mounted) {
       setState(() {
         _calls = calls;
+        _tables = tables;
         _loading = false;
       });
     }
@@ -71,7 +74,22 @@ class _WaiterCallsScreenState extends State<WaiterCallsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final activeCalls = _calls.where((c) => c['status'] != 'completed' && c['status'] != 'done').toList();
+    final waiterId = widget.currentWaiter['id'];
+
+    final myAssignedTables = _tables.where((t) => t['waiter_id']?.toString() == waiterId?.toString()).toList();
+    final myTableIds = myAssignedTables.map((t) => t['id']?.toString()).toSet();
+    final myTableLabels = myAssignedTables.map((t) => t['label']?.toString()).toSet();
+
+    // Фильтрация: вызовы ТОЛЬКО своих столов
+    final activeCalls = _calls.where((c) {
+      if (c['status'] == 'completed' || c['status'] == 'done') return false;
+      final tid = (c['table_id'] ?? '').toString();
+      final table = c['restaurant_tables'];
+      if (table != null && table is Map && table['waiter_id']?.toString() == waiterId) {
+        return true;
+      }
+      return myTableIds.contains(tid) || myTableLabels.contains(tid);
+    }).toList();
 
     return Scaffold(
       backgroundColor: const Color(0xFF000000),

@@ -50,6 +50,7 @@ class _WaitersScreenState extends State<WaitersScreen> {
   void _showAddWaiter([Map<String, dynamic>? existing]) {
     final nameCtrl = TextEditingController(text: existing?['name'] ?? '');
     final phoneCtrl = TextEditingController(text: existing?['phone'] ?? '');
+    final pinCtrl = TextEditingController(text: existing?['pin']?.toString() ?? '1234');
 
     showDialog(
       context: context,
@@ -64,6 +65,8 @@ class _WaitersScreenState extends State<WaitersScreen> {
             _field(nameCtrl, 'Имя официанта'),
             const SizedBox(height: 12),
             _field(phoneCtrl, 'Номер телефона', keyboardType: TextInputType.phone),
+            const SizedBox(height: 12),
+            _field(pinCtrl, 'ПИН-код для входа (например: 1234)', keyboardType: TextInputType.number),
           ],
         ),
         actions: [
@@ -73,9 +76,11 @@ class _WaitersScreenState extends State<WaitersScreen> {
             onPressed: () async {
               final name = nameCtrl.text.trim();
               if (name.isEmpty) return;
+              final pin = pinCtrl.text.trim().isEmpty ? '1234' : pinCtrl.text.trim();
               final data = {
                 'name': name,
                 'phone': phoneCtrl.text.trim(),
+                'pin': pin,
               };
               if (existing == null) {
                 await Supabase.instance.client.from('waiters').insert(data);
@@ -251,9 +256,26 @@ class _WaitersScreenState extends State<WaitersScreen> {
                                       style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
                                     ),
                                     const SizedBox(height: 2),
-                                    Text(
-                                      'Тел: ${w['phone'] ?? 'Не указан'}',
-                                      style: GoogleFonts.outfit(color: Colors.white38, fontSize: 13),
+                                    Row(
+                                      children: [
+                                        Text(
+                                          'Тел: ${w['phone'] ?? 'Не указан'}',
+                                          style: GoogleFonts.outfit(color: Colors.white38, fontSize: 13),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFD4A043).withOpacity(0.15),
+                                            borderRadius: BorderRadius.circular(6),
+                                            border: Border.all(color: const Color(0xFFD4A043).withOpacity(0.4)),
+                                          ),
+                                          child: Text(
+                                            'PIN: ${w['pin'] ?? '1234'}',
+                                            style: GoogleFonts.outfit(color: const Color(0xFFD4A043), fontSize: 11, fontWeight: FontWeight.bold),
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                     const SizedBox(height: 4),
                                     Row(

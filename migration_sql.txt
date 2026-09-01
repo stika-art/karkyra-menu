@@ -1,3 +1,6 @@
+-- Добавляем колонку PIN-кода для официантов, если её нет
+ALTER TABLE waiters ADD COLUMN IF NOT EXISTS pin text DEFAULT '1234';
+
 -- SQL скрипт для Supabase
 TRUNCATE TABLE dish_ingredients CASCADE;
 TRUNCATE TABLE menu_items_db CASCADE;
