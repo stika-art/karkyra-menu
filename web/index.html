@@ -78,25 +78,42 @@
           <div style="position: absolute; bottom: 20px; right: 20px; width: 24px; height: 24px; border-bottom: 4px solid #D4A043; border-right: 4px solid #D4A043; border-bottom-right-radius: 4px;"></div>
         </div>
 
-        <h3 style="margin-top: 28px; font-weight: 900; letter-spacing: 2px; color: white; text-align: center; font-size: 18px;">ПОДТВЕРЖДЕНИЕ СТОЛА</h3>
-        <p style="margin-top: 8px; color: rgba(255,255,255,0.7); text-align: center; font-size: 13px; max-width: 280px; line-height: 1.5; font-weight: 500;">
-          Наведите камеру на QR-код стола для отправки заказа
+        <h3 style="margin-top: 24px; font-weight: 900; letter-spacing: 2px; color: white; text-align: center; font-size: 18px;">ПОДТВЕРЖДЕНИЕ СТОЛА</h3>
+        <p style="margin-top: 6px; color: rgba(255,255,255,0.7); text-align: center; font-size: 13px; max-width: 280px; line-height: 1.4; font-weight: 500;">
+          Наведите камеру на QR-код стола или сделайте снимок
         </p>
 
-        <button id="qr-close-btn" style="
-          margin-top: 32px;
-          background: rgba(255,255,255,0.1);
-          border: 1px solid rgba(255,255,255,0.3);
-          color: white;
-          padding: 12px 36px;
-          border-radius: 14px;
-          font-weight: 800;
-          cursor: pointer;
-          font-size: 13px;
-          letter-spacing: 1.5px;
-          transition: all 0.2s ease;
-          outline: none;
-        ">ЗАКРЫТЬ</button>
+        <div style="display: flex; gap: 12px; margin-top: 24px;">
+          <label style="
+            background: #D4A043;
+            color: black;
+            padding: 12px 20px;
+            border-radius: 14px;
+            font-weight: 800;
+            cursor: pointer;
+            font-size: 12px;
+            letter-spacing: 1px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+          ">
+            📷 СНЯТЬ ФОТО QR
+            <input type="file" id="qr-file-input" accept="image/*" capture="environment" style="display: none;">
+          </label>
+
+          <button id="qr-close-btn" style="
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.25);
+            color: white;
+            padding: 12px 20px;
+            border-radius: 14px;
+            font-weight: 800;
+            cursor: pointer;
+            font-size: 12px;
+            letter-spacing: 1px;
+            outline: none;
+          ">ЗАКРЫТЬ</button>
+        </div>
       `;
 
       var style = document.createElement('style');
@@ -136,8 +153,7 @@
 
       function tryStartCamera(index) {
         if (index >= constraintsList.length) {
-          alert("Не удалось включить камеру. Пожалуйста, разрешите доступ к камере в Настройках Safari на iPhone.");
-          cleanup(null);
+          console.warn("Live stream could not be started. Using photo mode.");
           return;
         }
 
@@ -165,9 +181,38 @@
 
       if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
         tryStartCamera(0);
-      } else {
-        alert("Камера не поддерживается вашим браузером.");
-        cleanup(null);
+      }
+
+      // Обработка загрузки фото / съемки через нативную камеру iOS
+      var fileInput = document.getElementById('qr-file-input');
+      if (fileInput) {
+        fileInput.addEventListener('change', function(e) {
+          var file = e.target.files[0];
+          if (!file) return;
+
+          var reader = new FileReader();
+          reader.onload = function(event) {
+            var img = new Image();
+            img.onload = function() {
+              var canvas = document.createElement('canvas');
+              canvas.width = img.width;
+              canvas.height = img.height;
+              var ctx = canvas.getContext('2d');
+              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+              var imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+              if (typeof jsQR !== 'undefined') {
+                var code = jsQR(imgData.data, imgData.width, imgData.height, { inversionAttempts: "dontInvert" });
+                if (code && code.data) {
+                  cleanup(code.data);
+                  return;
+                }
+              }
+              alert("QR-код на фото не распознан. Попробуйте сделать более четкий снимок стола.");
+            };
+            img.src = event.target.result;
+          };
+          reader.readAsDataURL(file);
+        });
       }
 
       document.getElementById('qr-close-btn').addEventListener('click', function() {
