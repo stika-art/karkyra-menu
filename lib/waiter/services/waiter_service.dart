@@ -244,6 +244,52 @@ class WaiterService {
     }
   }
 
+  static Future<bool> updateTableOrdersStatus(String tableId, String status) async {
+    try {
+      await _client.from('orders_new').update({'status': status}).eq('table_id', tableId);
+      
+      final cleanNum = tableId.replaceAll(RegExp(r'[^0-9]'), '');
+      if (cleanNum.isNotEmpty && cleanNum != tableId) {
+        await _client.from('orders_new').update({'status': status}).eq('table_id', cleanNum);
+        await _client.from('orders_new').update({'status': status}).eq('table_id', 'table_$cleanNum');
+      }
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Очистить/освободить стол (удалить все позиции заказов стола и сбросить сессию)
+  static Future<bool> clearTableOrders(String tableId) async {
+    try {
+      await _client.from('orders_new').delete().eq('table_id', tableId);
+      await _client.from('table_sessions').delete().eq('table_id', tableId);
+
+      final cleanNum = tableId.replaceAll(RegExp(r'[^0-9]'), '');
+      if (cleanNum.isNotEmpty && cleanNum != tableId) {
+        await _client.from('orders_new').delete().eq('table_id', cleanNum);
+        await _client.from('orders_new').delete().eq('table_id', 'table_$cleanNum');
+        await _client.from('orders_new').delete().eq('table_id', 'Стол $cleanNum');
+        await _client.from('table_sessions').delete().eq('table_id', cleanNum);
+      }
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Очистить все заказы со всех столов текущего официанта
+  static Future<bool> clearAllMyTablesOrders(List<String> tableIds) async {
+    try {
+      for (var tid in tableIds) {
+        await clearTableOrders(tid);
+      }
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   /// Очистить завершенные/закрытые заказы прошлых смен
   static Future<bool> clearClosedOrders() async {
     try {

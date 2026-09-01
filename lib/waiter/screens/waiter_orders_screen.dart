@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../main.dart';
 import '../services/waiter_service.dart';
 
 class WaiterOrdersScreen extends StatefulWidget {
@@ -13,8 +14,7 @@ class WaiterOrdersScreen extends StatefulWidget {
   State<WaiterOrdersScreen> createState() => _WaiterOrdersScreenState();
 }
 
-class _WaiterOrdersScreenState extends State<WaiterOrdersScreen> with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+class _WaiterOrdersScreenState extends State<WaiterOrdersScreen> {
   List<Map<String, dynamic>> _orders = [];
   bool _loading = true;
   List<Map<String, dynamic>> _tables = [];
@@ -23,7 +23,9 @@ class _WaiterOrdersScreenState extends State<WaiterOrdersScreen> with SingleTick
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    if (MenuDataService.items.isEmpty) {
+      MenuDataService.load();
+    }
     _loadOrders();
     _initRealtime();
   }
@@ -31,7 +33,6 @@ class _WaiterOrdersScreenState extends State<WaiterOrdersScreen> with SingleTick
   @override
   void dispose() {
     _realtimeChannel?.unsubscribe();
-    _tabController.dispose();
     super.dispose();
   }
 
@@ -62,17 +63,27 @@ class _WaiterOrdersScreenState extends State<WaiterOrdersScreen> with SingleTick
     }
   }
 
-  Future<void> _updateStatus(String orderId, String newStatus) async {
-    final success = await WaiterService.updateOrderStatus(orderId, newStatus);
+  String _getMenuItemTitle(String? menuItemId) {
+    if (menuItemId == null) return 'Блюдо';
+    try {
+      final item = MenuDataService.items.firstWhere((m) => m.id == menuItemId);
+      return item.title;
+    } catch (_) {
+      return 'Блюдо #${menuItemId.length > 8 ? menuItemId.substring(0, 8) : menuItemId}';
+    }
+  }
+
+  Future<void> _updateTableStatus(String tableId, String newStatus) async {
+    final success = await WaiterService.updateTableOrdersStatus(tableId, newStatus);
     if (mounted && success) {
-      final statusLabel = newStatus == 'served'
-          ? 'Подан'
-          : newStatus == 'closed'
-              ? 'Закрыт'
-              : 'Обновлен';
+      final statusLabel = newStatus == 'processing'
+          ? 'Принят в готовку'
+          : newStatus == 'served'
+              ? 'Подан'
+              : 'Закрыт';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Заказ отмечен: $statusLabel ✅', style: GoogleFonts.outfit()),
+          content: Text('Стол №$tableId: $statusLabel ✅', style: GoogleFonts.outfit()),
           backgroundColor: const Color(0xFFD4A043),
         ),
       );
@@ -80,15 +91,15 @@ class _WaiterOrdersScreenState extends State<WaiterOrdersScreen> with SingleTick
     }
   }
 
-  Future<void> _confirmClearClosedOrders() async {
+  Future<void> _confirmClearTableOrders(String tableId) async {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF1C1C1E),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text('Очистить прошлые заказы?', style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: Text('Очистить стол №$tableId?', style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold)),
         content: Text(
-          'Удалить все закрытые заказы прошлых смен, чтобы они не мешали сегодня?',
+          'Удалить все позиции заказов для стола №$tableId и освободить стол?',
           style: GoogleFonts.outfit(color: Colors.white70),
         ),
         actions: [
@@ -97,21 +108,62 @@ class _WaiterOrdersScreenState extends State<WaiterOrdersScreen> with SingleTick
             child: Text('Отмена', style: GoogleFonts.outfit(color: Colors.white54)),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFD4A043)),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
             onPressed: () => Navigator.pop(ctx, true),
-            child: Text('Очистить', style: GoogleFonts.outfit(color: Colors.black, fontWeight: FontWeight.bold)),
+            child: Text('Очистить стол', style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
     );
 
     if (confirm == true) {
-      final success = await WaiterService.clearClosedOrders();
+      final success = await WaiterService.clearTableOrders(tableId);
       if (mounted) {
         if (success) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('История закрытых заказов очищена 🧹', style: GoogleFonts.outfit()),
+              content: Text('Стол №$tableId очищен и готов к приему новых гостей 🧹', style: GoogleFonts.outfit()),
+              backgroundColor: const Color(0xFFD4A043),
+            ),
+          );
+          _loadOrders();
+        }
+      }
+    }
+  }
+
+  Future<void> _confirmClearAllMyTablesOrders(List<String> tableIds) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1C1C1E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text('Очистить ВСЕ ваши столы?', style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold)),
+        content: Text(
+          'Удалить все текущие и старые заказы со всех закрепленных за вами столов?',
+          style: GoogleFonts.outfit(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('Отмена', style: GoogleFonts.outfit(color: Colors.white54)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('Очистить всё', style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      final success = await WaiterService.clearAllMyTablesOrders(tableIds);
+      if (mounted) {
+        if (success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Все ваши столы успешно очищены 🧹', style: GoogleFonts.outfit()),
               backgroundColor: const Color(0xFFD4A043),
             ),
           );
@@ -127,7 +179,7 @@ class _WaiterOrdersScreenState extends State<WaiterOrdersScreen> with SingleTick
 
     final myAssignedTables = _tables.where((t) => t['waiter_id']?.toString() == waiterId?.toString()).toList();
 
-    // Фильтрация: заказы ТОЛЬКО своих столов через универсальный матчер
+    // Фильтрация: заказы ТОЛЬКО своих столов
     final myOrders = _orders.where((o) {
       return WaiterService.isTableAssignedToWaiter(
         itemTableId: o['table_id'],
@@ -136,14 +188,23 @@ class _WaiterOrdersScreenState extends State<WaiterOrdersScreen> with SingleTick
       );
     }).toList();
 
+    // Группировка заказов по table_id
+    final Map<String, List<Map<String, dynamic>>> grouped = {};
+    for (var o in myOrders) {
+      final tid = (o['table_id'] ?? '').toString();
+      if (!grouped.containsKey(tid)) grouped[tid] = [];
+      grouped[tid]!.add(o);
+    }
+
     final tablesStr = myAssignedTables.map((t) => t['label'] ?? 'Стол').join(', ');
+    final allMyTableIds = myAssignedTables.map((t) => t['id'].toString()).toList();
 
     return Scaffold(
       backgroundColor: const Color(0xFF000000),
       body: SafeArea(
         child: Column(
           children: [
-            // Информационный баннер закрепленных столов
+            // Информационный баннер закрепленных столов с кнопкой очистки
             Container(
               margin: const EdgeInsets.fromLTRB(16, 12, 16, 8),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -178,24 +239,18 @@ class _WaiterOrdersScreenState extends State<WaiterOrdersScreen> with SingleTick
                         ),
                         Text(
                           myAssignedTables.isNotEmpty
-                              ? 'Отображаются заказы только ваших столов'
+                              ? 'Активных столов с заказами: ${grouped.length}'
                               : 'Закрепите столы во вкладке «Столы» для приема заказов',
                           style: GoogleFonts.outfit(color: Colors.white54, fontSize: 11),
                         ),
                       ],
                     ),
                   ),
-                  if (myOrders.isNotEmpty)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFD4A043),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        '${myOrders.length}',
-                        style: GoogleFonts.outfit(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 12),
-                      ),
+                  if (grouped.isNotEmpty)
+                    IconButton(
+                      onPressed: () => _confirmClearAllMyTablesOrders(grouped.keys.toList()),
+                      icon: const Icon(Icons.cleaning_services_rounded, color: Colors.redAccent, size: 22),
+                      tooltip: 'Очистить все столы',
                     ),
                 ],
               ),
@@ -204,12 +259,30 @@ class _WaiterOrdersScreenState extends State<WaiterOrdersScreen> with SingleTick
             Expanded(
               child: _loading
                   ? const Center(child: CircularProgressIndicator(color: Color(0xFFD4A043)))
-                  : _buildOrdersList(
-                      myOrders,
-                      emptyMessage: myAssignedTables.isEmpty
-                          ? 'Закрепите столы во вкладке «Столы», чтобы видеть их заказы'
-                          : 'На ваших столах пока нет активных заказов',
-                    ),
+                  : grouped.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.receipt_long_outlined, size: 64, color: Colors.white.withOpacity(0.2)),
+                              const SizedBox(height: 16),
+                              Text(
+                                myAssignedTables.isEmpty
+                                    ? 'Закрепите столы во вкладке «Столы», чтобы видеть их заказы'
+                                    : 'На ваших столах нет активных заказов',
+                                style: GoogleFonts.outfit(color: Colors.white38, fontSize: 16),
+                              ),
+                            ],
+                          ),
+                        )
+                      : ListView(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          children: grouped.entries.map((entry) {
+                            final tableId = entry.key;
+                            final items = entry.value;
+                            return _buildTableOrdersCard(tableId, items);
+                          }).toList(),
+                        ),
             ),
           ],
         ),
@@ -217,94 +290,55 @@ class _WaiterOrdersScreenState extends State<WaiterOrdersScreen> with SingleTick
     );
   }
 
-  Widget _buildAllOrdersTab(List<Map<String, dynamic>> orders) {
-    final closedCount = orders.where((o) => o['status'] == 'closed' || o['status'] == 'completed').length;
+  Widget _buildTableOrdersCard(String tableId, List<Map<String, dynamic>> items) {
+    final double totalAmount = items.fold(0.0, (sum, it) {
+      final double price = (it['price'] ?? 0).toDouble();
+      final int qty = (it['quantity'] ?? 1);
+      return sum + (price * qty);
+    });
 
-    return Column(
-      children: [
-        if (closedCount > 0)
-          Padding(
-            padding: const EdgeInsets.only(left: 16, right: 16, bottom: 10),
-            child: SizedBox(
-              width: double.infinity,
-              height: 42,
-              child: OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white70,
-                  side: BorderSide(color: const Color(0xFFD4A043).withOpacity(0.5)),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-                onPressed: _confirmClearClosedOrders,
-                icon: const Icon(Icons.cleaning_services_rounded, size: 18, color: Color(0xFFD4A043)),
-                label: Text(
-                  'Очистить прошлые заказы ($closedCount)',
-                  style: GoogleFonts.outfit(color: const Color(0xFFD4A043), fontSize: 13, fontWeight: FontWeight.bold),
-                ),
-              ),
-            ),
-          ),
-        Expanded(
-          child: _buildOrdersList(orders, emptyMessage: 'Заказы в ресторане отсутствуют'),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildOrdersList(List<Map<String, dynamic>> list, {required String emptyMessage}) {
-    if (list.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.receipt_long_outlined, size: 64, color: Colors.white.withOpacity(0.2)),
-            const SizedBox(height: 16),
-            Text(emptyMessage, style: GoogleFonts.outfit(color: Colors.white38, fontSize: 16)),
-          ],
-        ),
-      );
-    }
-
-    return ListView.separated(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      itemCount: list.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (context, index) {
-        final order = list[index];
-        return _buildOrderCard(order);
-      },
-    );
-  }
-
-  Widget _buildOrderCard(Map<String, dynamic> order) {
-    final orderId = order['id'] as String;
-    final status = (order['status'] ?? 'pending').toString();
-    final items = order['items'] as List<dynamic>? ?? [];
-    final totalAmount = order['total_amount'] ?? 0;
-    final table = order['restaurant_tables'];
-    String tableLabel = 'Стол №${order['table_id'] ?? '?'}';
-    if (table != null && table is Map && table['label'] != null) {
-      tableLabel = table['label'];
-    }
+    final bool isAnyCooking = items.any((it) => it['status'] == 'processing');
+    final bool isAnyServed = items.any((it) => it['status'] == 'served');
+    final bool isAllClosed = items.every((it) => it['status'] == 'closed');
 
     Color statusBg = Colors.orange.withOpacity(0.2);
     Color statusColor = Colors.orange;
-    String statusTitle = 'В обработке';
+    String statusTitle = 'Ожидает принятия';
 
-    if (status == 'confirmed' || status == 'cooking') {
-      statusBg = Colors.blue.withOpacity(0.2);
-      statusColor = Colors.lightBlueAccent;
-      statusTitle = 'Готовится';
-    } else if (status == 'ready' || status == 'served') {
-      statusBg = Colors.green.withOpacity(0.2);
-      statusColor = Colors.greenAccent;
-      statusTitle = 'Подан';
-    } else if (status == 'closed' || status == 'completed') {
+    if (isAllClosed) {
       statusBg = Colors.white.withOpacity(0.1);
       statusColor = Colors.white54;
       statusTitle = 'Закрыт';
+    } else if (isAnyServed) {
+      statusBg = Colors.green.withOpacity(0.2);
+      statusColor = Colors.greenAccent;
+      statusTitle = 'Подан';
+    } else if (isAnyCooking) {
+      statusBg = Colors.blue.withOpacity(0.2);
+      statusColor = Colors.lightBlueAccent;
+      statusTitle = 'Готовится';
+    }
+
+    // Ищем читабельное название стола
+    final tMatch = _tables.firstWhere(
+      (t) => t['id']?.toString() == tableId || t['label']?.toString() == tableId,
+      orElse: () => {},
+    );
+    final tableLabel = tMatch['label'] ?? 'Стол №$tableId';
+
+    // Группируем блюда стола
+    final Map<String, Map<String, dynamic>> groupedItems = {};
+    for (var it in items) {
+      final key = "${it['menu_item_id']}_${it['user_name'] ?? ''}";
+      if (groupedItems.containsKey(key)) {
+        groupedItems[key]!['quantity'] = (groupedItems[key]!['quantity'] as int) + (it['quantity'] as int);
+      } else {
+        groupedItems[key] = Map<String, dynamic>.from(it);
+      }
     }
 
     return Container(
+      margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
         color: const Color(0xFF1C1C1E),
         borderRadius: BorderRadius.circular(20),
@@ -334,16 +368,26 @@ class _WaiterOrdersScreenState extends State<WaiterOrdersScreen> with SingleTick
                   ),
                 ],
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: statusBg,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Text(
-                  statusTitle,
-                  style: GoogleFonts.outfit(color: statusColor, fontSize: 12, fontWeight: FontWeight.bold),
-                ),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: statusBg,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      statusTitle,
+                      style: GoogleFonts.outfit(color: statusColor, fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    onPressed: () => _confirmClearTableOrders(tableId),
+                    icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 20),
+                    tooltip: 'Очистить стол',
+                  ),
+                ],
               ),
             ],
           ),
@@ -353,24 +397,36 @@ class _WaiterOrdersScreenState extends State<WaiterOrdersScreen> with SingleTick
 
           // Список блюд
           Column(
-            children: items.map((it) {
-              final title = it['title'] ?? it['name'] ?? 'Блюдо';
-              final qty = it['quantity'] ?? it['qty'] ?? 1;
-              final price = it['price'] ?? 0;
+            children: groupedItems.values.map((it) {
+              final title = _getMenuItemTitle(it['menu_item_id']?.toString());
+              final qty = it['quantity'] ?? 1;
+              final price = (it['price'] ?? 0).toDouble();
+              final userName = it['user_name']?.toString() ?? '';
+
               return Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Expanded(
-                      child: Text(
-                        '$qty x $title',
-                        style: GoogleFonts.outfit(color: Colors.white70, fontSize: 14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '$qty x $title',
+                            style: GoogleFonts.outfit(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
+                          ),
+                          if (userName.isNotEmpty)
+                            Text(
+                              'Гость: $userName',
+                              style: GoogleFonts.outfit(color: Colors.white38, fontSize: 11),
+                            ),
+                        ],
                       ),
                     ),
                     Text(
-                      '${price * qty} сом',
-                      style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.w600),
+                      '${(price * qty).toStringAsFixed(0)} сом',
+                      style: GoogleFonts.outfit(color: const Color(0xFFD4A043), fontWeight: FontWeight.bold),
                     ),
                   ],
                 ),
@@ -382,9 +438,9 @@ class _WaiterOrdersScreenState extends State<WaiterOrdersScreen> with SingleTick
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Итого:', style: GoogleFonts.outfit(color: Colors.white54, fontSize: 14)),
+              Text('Итого к оплате:', style: GoogleFonts.outfit(color: Colors.white54, fontSize: 14)),
               Text(
-                '$totalAmount сом',
+                '${totalAmount.toStringAsFixed(0)} сом',
                 style: GoogleFonts.outfit(color: const Color(0xFFD4A043), fontSize: 18, fontWeight: FontWeight.bold),
               ),
             ],
@@ -392,37 +448,52 @@ class _WaiterOrdersScreenState extends State<WaiterOrdersScreen> with SingleTick
 
           const SizedBox(height: 14),
 
-          // Кнопка управления статусом
+          // Кнопки управления заказом стола
           Row(
             children: [
-              if (status != 'ready' && status != 'served' && status != 'closed')
+              if (!isAnyCooking && !isAnyServed && !isAllClosed)
+                Expanded(
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blueAccent,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    onPressed: () => _updateTableStatus(tableId, 'processing'),
+                    icon: const Icon(Icons.soup_kitchen_rounded, size: 18),
+                    label: Text('Принять заказ', style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              if (isAnyCooking && !isAnyServed && !isAllClosed)
                 Expanded(
                   child: ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.greenAccent,
                       foregroundColor: Colors.black,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
-                    onPressed: () => _updateStatus(orderId, 'served'),
+                    onPressed: () => _updateTableStatus(tableId, 'served'),
                     icon: const Icon(Icons.check_rounded, size: 18),
-                    label: Text('Подано', style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
+                    label: Text('Заказ подан', style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
                   ),
                 ),
-              if (status != 'ready' && status != 'served' && status != 'closed')
-                const SizedBox(width: 8),
-              if (status != 'closed')
-                Expanded(
-                  child: OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.white70,
-                      side: BorderSide(color: Colors.white.withOpacity(0.2)),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                    onPressed: () => _updateStatus(orderId, 'closed'),
-                    icon: const Icon(Icons.done_all_rounded, size: 18),
-                    label: Text('Закрыть заказ', style: GoogleFonts.outfit()),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.redAccent.withOpacity(0.2),
+                    foregroundColor: Colors.redAccent,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
                   ),
+                  onPressed: () => _confirmClearTableOrders(tableId),
+                  icon: const Icon(Icons.cleaning_services_rounded, size: 18),
+                  label: Text('Очистить стол', style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
                 ),
+              ),
             ],
           ),
         ],
