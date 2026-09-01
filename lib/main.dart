@@ -114,6 +114,16 @@ void main() async {
     final String tableId = isDeliveryMode ? 'delivery_$deviceId' : (params['table'] ?? '1');
 
     final String fullUrl = Uri.base.toString().toLowerCase();
+    final String path = Uri.base.path.toLowerCase();
+    final String fragment = Uri.base.fragment.toLowerCase();
+
+    final bool isWaiterRoute = fullUrl.contains('waiter') ||
+        path.contains('waiter') ||
+        fragment.contains('waiter') ||
+        params.containsKey('waiter') ||
+        params.containsKey('waiters') ||
+        params['role'] == 'waiter' ||
+        params['role'] == 'waiters';
 
     // Обработка ссылки «Иду к столу!» из Telegram
     if (params.containsKey('accept_call')) {
@@ -134,12 +144,12 @@ void main() async {
         ),
         home: _AcceptOrderPage(tableId: tableId),
       ));
-    } else if (fullUrl.contains('waiter') || params.containsKey('waiter') || params['role'] == 'waiter') {
+    } else if (isWaiterRoute) {
       runApp(const MaterialApp(
         debugShowCheckedModeBanner: false,
         home: waiter.WaiterApp(),
       ));
-    } else if (fullUrl.contains('admin') || params.containsKey('admin')) {
+    } else if (fullUrl.contains('admin') || params.containsKey('admin') || path.contains('admin') || fragment.contains('admin')) {
       runApp(const admin.AdminApp());
     } else {
       runApp(

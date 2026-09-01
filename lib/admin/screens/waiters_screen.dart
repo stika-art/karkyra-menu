@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../waiter/waiter_app.dart' as waiter;
 
 class WaitersScreen extends StatefulWidget {
   const WaitersScreen({super.key});
@@ -152,7 +153,7 @@ class _WaitersScreenState extends State<WaitersScreen> {
 
     return Column(
       children: [
-        // Заголовок и Кнопка Добавить
+        // Заголовок и Кнопки
         Padding(
           padding: const EdgeInsets.all(24.0),
           child: Row(
@@ -162,15 +163,39 @@ class _WaitersScreenState extends State<WaitersScreen> {
                 'Официанты и Аналитика',
                 style: GoogleFonts.outfit(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
               ),
-              ElevatedButton.icon(
-                onPressed: () => _showAddWaiter(),
-                icon: const Icon(Icons.person_add_rounded),
-                label: const Text('Добавить официанта'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFD4A043),
-                  foregroundColor: Colors.black,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                ),
+              Row(
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const waiter.WaiterApp()),
+                      );
+                    },
+                    icon: const Icon(Icons.touch_app_rounded, color: Color(0xFFD4A043), size: 18),
+                    label: Text(
+                      'Панель официанта',
+                      style: GoogleFonts.outfit(color: const Color(0xFFD4A043), fontWeight: FontWeight.bold),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Color(0xFFD4A043)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  ElevatedButton.icon(
+                    onPressed: () => _showAddWaiter(),
+                    icon: const Icon(Icons.person_add_rounded),
+                    label: const Text('Добавить официанта'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFD4A043),
+                      foregroundColor: Colors.black,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
