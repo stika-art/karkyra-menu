@@ -666,6 +666,7 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
                 style: GoogleFonts.forum(
                   color: Colors.white,
                   fontSize: 28,
+                  height: 1.0,
                   fontWeight: FontWeight.w400,
                   letterSpacing: 6.0,
                 ),
@@ -681,18 +682,21 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 0),
-          Text(
-            'CAFE',
-            textAlign: TextAlign.center,
-            style: GoogleFonts.oswald(
-              color: Colors.white38,
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-              letterSpacing: 4.0,
+          Transform.translate(
+            offset: const Offset(0, -5),
+            child: Text(
+              'CAFE',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.oswald(
+                color: Colors.white38,
+                fontSize: 11,
+                height: 1.0,
+                fontWeight: FontWeight.w500,
+                letterSpacing: 4.0,
+              ),
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 1),
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
