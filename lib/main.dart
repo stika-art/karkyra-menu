@@ -103,6 +103,7 @@ void main() async {
     );
     
     final prefs = await SharedPreferences.getInstance();
+    MenuDataService.initFromStorage(prefs);
     var deviceId = prefs.getString('device_id');
     if (deviceId == null || deviceId.isEmpty) {
       deviceId = 'u_${DateTime.now().millisecondsSinceEpoch}';
@@ -208,8 +209,8 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
   String selectedCategoryId = '0'; 
   String? activeQuickFilter; // To track Top, New, etc.
   final ScrollController _categoryScrollController = ScrollController();
-  List<Map<String, String>> _banners = [];
-  bool _isMenuLoading = false;
+  List<Map<String, String>> _banners = MenuDataService.banners;
+  bool _isMenuLoading = !MenuDataService.isLoaded;
   RealtimeChannel? _waiterCallChannel;
   bool _isWaiterComing = false;
   bool _isAskingName = false;
@@ -1097,6 +1098,19 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
     }
 
     if (filteredItems.isEmpty) {
+      if (!MenuDataService.isLoaded) {
+        return const SliverToBoxAdapter(
+          child: Padding(
+            padding: EdgeInsets.symmetric(vertical: 80),
+            child: Center(
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFD4A043)),
+                strokeWidth: 2.5,
+              ),
+            ),
+          ),
+        );
+      }
       return const SliverToBoxAdapter(
         child: Padding(
           padding: EdgeInsets.all(40),
