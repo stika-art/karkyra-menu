@@ -33,8 +33,66 @@
 
   <style>
     body { background-color: #141414; margin: 0; padding: 0; overflow: hidden; }
+    
+    #bonum-splash {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: #121212;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 99999;
+      transition: opacity 0.4s ease-out;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .splash-logo {
+      font-family: 'Forum', serif, -apple-system, sans-serif;
+      color: #FFFFFF;
+      font-size: 34px;
+      letter-spacing: 8px;
+      margin-left: 8px;
+      font-weight: 400;
+    }
+    .splash-sub {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: rgba(255, 255, 255, 0.38);
+      font-size: 11px;
+      letter-spacing: 6px;
+      margin-left: 6px;
+      margin-top: 4px;
+      font-weight: 600;
+    }
+    .splash-bar {
+      width: 130px;
+      height: 2px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 2px;
+      margin-top: 28px;
+      overflow: hidden;
+      position: relative;
+    }
+    .splash-progress {
+      position: absolute;
+      top: 0;
+      left: 0;
+      height: 100%;
+      width: 40%;
+      background: #D4A043;
+      border-radius: 2px;
+      box-shadow: 0 0 10px #D4A043;
+      animation: splashPulse 1.2s ease-in-out infinite alternate;
+    }
+    @keyframes splashPulse {
+      0% { left: 0%; width: 25%; }
+      100% { left: 75%; width: 35%; }
+    }
   </style>
-  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" defer></script>
   <script>
     window.scanQrCode = function(callback) {
       var overlay = document.createElement('div');
@@ -263,6 +321,29 @@
   </script>
 </head>
 <body>
+  <div id="bonum-splash">
+    <div class="splash-logo">BONUM</div>
+    <div class="splash-sub">CAFE</div>
+    <div class="splash-bar"><div class="splash-progress"></div></div>
+  </div>
+
+  <script>
+    (function() {
+      function removeSplash() {
+        var splash = document.getElementById('bonum-splash');
+        if (splash && splash.style.opacity !== '0') {
+          splash.style.opacity = '0';
+          setTimeout(function() {
+            if (splash && splash.parentNode) splash.parentNode.removeChild(splash);
+          }, 450);
+        }
+      }
+      window.addEventListener('flutter-first-frame', removeSplash);
+      // Страховочный таймер (на случай если событие первого кадра задержится)
+      setTimeout(removeSplash, 4500);
+    })();
+  </script>
+
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
