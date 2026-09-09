@@ -2486,9 +2486,12 @@ class _SharedCartScreenState extends State<SharedCartScreen> {
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
-                    onPressed: () {
+                    onPressed: () async {
                       Navigator.pop(ctx);
-                      _scanTableQr(context, cart);
+                      await Future.delayed(const Duration(milliseconds: 250));
+                      if (context.mounted) {
+                        _scanTableQr(context, cart);
+                      }
                     },
                     icon: const Icon(Icons.qr_code_scanner_rounded),
                     label: const Text("ОТКРЫТЬ КАМЕРУ (ПОДТВЕРДИТЬ СТОЛ)"),

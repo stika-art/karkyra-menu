@@ -60,6 +60,26 @@
       `;
 
       overlay.innerHTML = `
+        <button id="qr-close-top" style="
+          position: absolute;
+          top: 24px;
+          right: 24px;
+          width: 44px;
+          height: 44px;
+          border-radius: 50%;
+          background: rgba(255,255,255,0.15);
+          border: 1px solid rgba(255,255,255,0.25);
+          color: white;
+          font-size: 22px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          z-index: 10;
+          outline: none;
+          backdrop-filter: blur(5px);
+        ">✕</button>
+
         <div style="position: relative; width: 280px; height: 280px; border-radius: 32px; overflow: hidden; border: 2px solid rgba(212, 160, 67, 0.5); box-shadow: 0 0 40px rgba(0,0,0,0.8); background: black;">
           <video id="qr-video" autoplay playsinline webkit-playsinline muted style="width: 100%; height: 100%; object-fit: cover;"></video>
           <div id="qr-laser" style="
@@ -83,7 +103,7 @@
           Наведите камеру на QR-код вашего стола
         </p>
         <div id="qr-camera-error" style="display: none; color: #FF5252; margin-top: 10px; font-size: 12px; text-align: center; max-width: 260px; font-weight: 600;">
-          Камера недоступна. Пожалуйста, разрешите доступ к камере в настройках браузера.
+          Камера недоступна. Пожалуйста, разрешите доступ к камере в браузере.
         </div>
 
         <div style="margin-top: 24px;">
@@ -110,8 +130,8 @@
           50% { top: 100%; }
           100% { top: 0%; }
         }
-        #qr-close-btn:active {
-          background: rgba(255,255,255,0.25);
+        #qr-close-btn:active, #qr-close-top:active {
+          background: rgba(255,255,255,0.3);
           transform: scale(0.96);
         }
       `;
@@ -119,6 +139,25 @@
       document.body.appendChild(overlay);
 
       setTimeout(function() { overlay.style.opacity = '1'; }, 50);
+
+      var openedAt = Date.now();
+      function safeClose(e) {
+        if (e) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        // Защита от случайного фантомного клика в первые 600 мс после открытия
+        if (Date.now() - openedAt < 600) {
+          return;
+        }
+        cleanup(null);
+      }
+
+      var closeBtn = document.getElementById('qr-close-btn');
+      if (closeBtn) closeBtn.addEventListener('click', safeClose);
+
+      var closeTopBtn = document.getElementById('qr-close-top');
+      if (closeTopBtn) closeTopBtn.addEventListener('click', safeClose);
 
       var video = document.getElementById('qr-video');
       video.setAttribute('playsinline', 'true');
@@ -132,14 +171,12 @@
       var stream = null;
       var animationFrameId = null;
 
-      // Создаем один постоянный canvas для декодирования без утечек памяти
       var canvas = document.createElement('canvas');
       var ctx = canvas.getContext('2d', { willReadFrequently: true });
 
       var constraintsList = [
-        { video: { facingMode: { exact: 'environment' } }, audio: false },
-        { video: { facingMode: 'environment' }, audio: false },
         { video: { facingMode: { ideal: 'environment' } }, audio: false },
+        { video: { facingMode: 'environment' }, audio: false },
         { video: true, audio: false }
       ];
 
@@ -155,14 +192,21 @@
           .then(function(s) {
             stream = s;
             video.srcObject = stream;
-            video.onloadedmetadata = function() {
+            
+            var startStream = function() {
               video.play().then(function() {
-                animationFrameId = requestAnimationFrame(tick);
+                if (!animationFrameId) animationFrameId = requestAnimationFrame(tick);
               }).catch(function(e) {
                 console.warn("Video play error:", e);
-                animationFrameId = requestAnimationFrame(tick);
+                if (!animationFrameId) animationFrameId = requestAnimationFrame(tick);
               });
             };
+
+            if (video.readyState >= 1) {
+              startStream();
+            } else {
+              video.onloadedmetadata = startStream;
+            }
           })
           .catch(function(err) {
             console.warn("Camera constraint failed (" + index + "):", err);
@@ -177,25 +221,26 @@
         if (errDiv) errDiv.style.display = 'block';
       }
 
-      document.getElementById('qr-close-btn').addEventListener('click', function() {
-        cleanup(null);
-      });
+      var lastScanTime = 0;
+      function tick(now) {
+        if (video.readyState >= 2 && video.videoWidth > 0) {
+          // Сканируем каждые 100 мс, чтобы не нагружать процессор смартфона
+          if (!now || (now - lastScanTime > 100)) {
+            lastScanTime = now || Date.now();
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            if (typeof jsQR !== 'undefined') {
+              var code = jsQR(imageData.data, imageData.width, imageData.height, {
+                inversionAttempts: "dontInvert",
+              });
 
-      function tick() {
-        if (video.readyState >= video.HAVE_CURRENT_DATA && video.videoWidth > 0) {
-          canvas.width = video.videoWidth;
-          canvas.height = video.videoHeight;
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          
-          var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          if (typeof jsQR !== 'undefined') {
-            var code = jsQR(imageData.data, imageData.width, imageData.height, {
-              inversionAttempts: "dontInvert",
-            });
-
-            if (code && code.data) {
-              cleanup(code.data);
-              return;
+              if (code && code.data && code.data.trim().length > 0) {
+                cleanup(code.data.trim());
+                return;
+              }
             }
           }
         }
