@@ -115,10 +115,14 @@ class CartProvider with ChangeNotifier {
         .stream(primaryKey: ['id'])
         .eq('table_id', tableId)
         .listen((data) {
-          // ВСЕГДА фильтруем удалённые ID, независимо от причины обновления стрима
+          // ВСЕГДА фильтруем удалённые ID и завершенные/архивные заказы прошлых сессий
           _items = data
               .map((json) => CartItem.fromJson(json))
-              .where((item) => !_deletedIds.contains(item.id))
+              .where((item) =>
+                  !_deletedIds.contains(item.id) &&
+                  item.status != 'completed' &&
+                  item.status != 'closed' &&
+                  item.status != 'archived')
               .toList();
           _items.sort((a, b) => a.createdAt.compareTo(b.createdAt));
           _isLoading = false;
@@ -324,10 +328,19 @@ class CartProvider with ChangeNotifier {
     _items.clear();
     notifyListeners();
     try {
+      // 1. Удаляем только не подтвержденные черновики
       await Supabase.instance.client
           .from('orders_new')
           .delete()
-          .eq('table_id', tableId);
+          .eq('table_id', tableId)
+          .eq('status', 'ordering');
+
+      // 2. Все подтвержденные заказы переводим в completed (сохраняются для аналитики!)
+      await Supabase.instance.client
+          .from('orders_new')
+          .update({'status': 'completed'})
+          .eq('table_id', tableId)
+          .neq('status', 'completed');
     } catch (e) {
       _showError("Ошибка очистки");
     }

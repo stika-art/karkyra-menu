@@ -223,6 +223,9 @@ class WaiterService {
       final res = await _client
           .from('orders_new')
           .select()
+          .neq('status', 'ordering')
+          .neq('status', 'completed')
+          .neq('status', 'closed')
           .order('created_at', ascending: false);
       return List<Map<String, dynamic>>.from(res);
     } catch (e) {
@@ -254,18 +257,25 @@ class WaiterService {
     }
   }
 
-  /// Очистить/освободить стол (удалить все позиции заказов стола и сбросить сессию)
+  /// Очистить/освободить стол (закрыть заказы в completed для аналитики и сбросить сессию)
   static Future<bool> clearTableOrders(String tableId) async {
     try {
-      await _client.from('orders_new').delete().eq('table_id', tableId);
+      // 1. Удаляем черновики (неподтвержденные)
+      await _client.from('orders_new').delete().eq('table_id', tableId).eq('status', 'ordering');
+      // 2. Все подтвержденные заказы закрываем в completed (сохраняются для аналитики!)
+      await _client.from('orders_new').update({'status': 'completed'}).eq('table_id', tableId).neq('status', 'completed');
+      // 3. Сбрасываем сессию и участников
       await _client.from('table_sessions').delete().eq('table_id', tableId);
+      await _client.from('table_participants').delete().eq('table_id', tableId);
 
       final cleanNum = tableId.replaceAll(RegExp(r'[^0-9]'), '');
       if (cleanNum.isNotEmpty && cleanNum != tableId) {
-        await _client.from('orders_new').delete().eq('table_id', cleanNum);
-        await _client.from('orders_new').delete().eq('table_id', 'table_$cleanNum');
-        await _client.from('orders_new').delete().eq('table_id', 'Стол $cleanNum');
+        await _client.from('orders_new').delete().eq('table_id', cleanNum).eq('status', 'ordering');
+        await _client.from('orders_new').update({'status': 'completed'}).eq('table_id', cleanNum).neq('status', 'completed');
+        await _client.from('orders_new').update({'status': 'completed'}).eq('table_id', 'table_$cleanNum').neq('status', 'completed');
+        await _client.from('orders_new').update({'status': 'completed'}).eq('table_id', 'Стол $cleanNum').neq('status', 'completed');
         await _client.from('table_sessions').delete().eq('table_id', cleanNum);
+        await _client.from('table_participants').delete().eq('table_id', cleanNum);
       }
       return true;
     } catch (e) {
@@ -285,17 +295,9 @@ class WaiterService {
     }
   }
 
-  /// Очистить завершенные/закрытые заказы прошлых смен
+  /// Завершить закрытые заказы прошлых смен (история сохраняется в базе для аналитики)
   static Future<bool> clearClosedOrders() async {
-    try {
-      await _client
-          .from('orders_new')
-          .delete()
-          .inFilter('status', ['closed', 'completed']);
-      return true;
-    } catch (e) {
-      return false;
-    }
+    return true; // Не удаляем строки, чтобы сохранять статистику в аналитике
   }
 
   // ==========================================

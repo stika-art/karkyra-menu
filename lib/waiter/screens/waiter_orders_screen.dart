@@ -97,9 +97,9 @@ class _WaiterOrdersScreenState extends State<WaiterOrdersScreen> {
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF1C1C1E),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text('Очистить стол №$tableId?', style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: Text('Освободить стол №$tableId?', style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold)),
         content: Text(
-          'Удалить все позиции заказов для стола №$tableId и освободить стол?',
+          'Рассчитать заказ стола №$tableId и освободить стол для новых гостей? Заказ сохранится в аналитике заведения.',
           style: GoogleFonts.outfit(color: Colors.white70),
         ),
         actions: [
@@ -108,9 +108,9 @@ class _WaiterOrdersScreenState extends State<WaiterOrdersScreen> {
             child: Text('Отмена', style: GoogleFonts.outfit(color: Colors.white54)),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFD4A043)),
             onPressed: () => Navigator.pop(ctx, true),
-            child: Text('Очистить стол', style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold)),
+            child: Text('Освободить стол', style: GoogleFonts.outfit(color: Colors.black, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -122,7 +122,7 @@ class _WaiterOrdersScreenState extends State<WaiterOrdersScreen> {
         if (success) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Стол №$tableId очищен и готов к приему новых гостей 🧹', style: GoogleFonts.outfit()),
+              content: Text('Стол №$tableId освобожден и готов к приему новых гостей 🧹', style: GoogleFonts.outfit()),
               backgroundColor: const Color(0xFFD4A043),
             ),
           );
@@ -138,9 +138,9 @@ class _WaiterOrdersScreenState extends State<WaiterOrdersScreen> {
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF1C1C1E),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text('Очистить ВСЕ ваши столы?', style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: Text('Освободить ВСЕ ваши столы?', style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold)),
         content: Text(
-          'Удалить все текущие и старые заказы со всех закрепленных за вами столов?',
+          'Завершить заказы со всех закрепленных столов? Заказы сохранятся в аналитике заведения.',
           style: GoogleFonts.outfit(color: Colors.white70),
         ),
         actions: [
@@ -149,9 +149,9 @@ class _WaiterOrdersScreenState extends State<WaiterOrdersScreen> {
             child: Text('Отмена', style: GoogleFonts.outfit(color: Colors.white54)),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFD4A043)),
             onPressed: () => Navigator.pop(ctx, true),
-            child: Text('Очистить всё', style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold)),
+            child: Text('Освободить всё', style: GoogleFonts.outfit(color: Colors.black, fontWeight: FontWeight.bold)),
           ),
         ],
       ),

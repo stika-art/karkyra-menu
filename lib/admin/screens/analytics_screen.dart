@@ -124,8 +124,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final filteredTableOrders = _rawTableOrders.where((o) => _filterByDate(o['created_at'])).toList();
-    final filteredDeliveryOrders = _rawDeliveryOrders.where((d) => _filterByDate(d['created_at'])).toList();
+    final filteredTableOrders = _rawTableOrders.where((o) {
+      if (o['status'] == 'cancelled') return false;
+      return _filterByDate(o['created_at']);
+    }).toList();
+    final filteredDeliveryOrders = _rawDeliveryOrders.where((d) {
+      if (d['status'] == 'cancelled') return false;
+      return _filterByDate(d['created_at']);
+    }).toList();
     final filteredCalls = _rawCalls.where((c) => _filterByDate(c['created_at'])).toList();
 
     // Расчет выручки за столами

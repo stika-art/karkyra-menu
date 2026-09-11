@@ -194,12 +194,15 @@ class _OrdersScreenState extends State<OrdersScreen>
           .from('orders_new')
           .select()
           .neq('status', 'ordering')
+          .neq('status', 'completed')
+          .neq('status', 'closed')
           .order('created_at', ascending: false)
           .timeout(const Duration(seconds: 7));
 
       final deliveryRes = await Supabase.instance.client
           .from('delivery_orders')
           .select()
+          .neq('status', 'archived')
           .order('created_at', ascending: false)
           .timeout(const Duration(seconds: 7));
 
@@ -321,14 +324,15 @@ class _OrdersScreenState extends State<OrdersScreen>
 
   Future<void> _clearAllDeliveryOrders() async {
     try {
+      // Архивируем заказы доставки, чтобы очистить экран, но сохранить выручку в аналитике!
       await Supabase.instance.client
           .from('delivery_orders')
-          .delete()
-          .not('id', 'is', null); // Самый надежный способ удалить всё
+          .update({'status': 'archived'})
+          .neq('status', 'archived');
       _loadOrders();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('История доставки очищена'), backgroundColor: Colors.green),
+          const SnackBar(content: Text('Экран доставки очищен. Данные сохранены в аналитике ✅'), backgroundColor: Colors.green),
         );
       }
     } catch (e) {
@@ -343,28 +347,46 @@ class _OrdersScreenState extends State<OrdersScreen>
 
   Future<void> _clearTableOrders(String tableId) async {
     try {
-      // Удаляем заказы стола
+      // 1. Удаляем не подтвержденные черновики
       await Supabase.instance.client
           .from('orders_new')
           .delete()
-          .eq('table_id', tableId);
+          .eq('table_id', tableId)
+          .eq('status', 'ordering');
+
+      // 2. Все подтвержденные заказы стола переводим в completed (сохраняются для аналитики!)
+      await Supabase.instance.client
+          .from('orders_new')
+          .update({'status': 'completed'})
+          .eq('table_id', tableId)
+          .neq('status', 'completed');
       
-      // Удаляем участников (призраков) стола
+      // 3. Удаляем участников (призраков) стола
       await Supabase.instance.client
           .from('table_participants')
           .delete()
           .eq('table_id', tableId);
       
-      // Сбрасываем сессию
+      // 4. Сбрасываем сессию
       await Supabase.instance.client
           .from('table_sessions')
           .delete()
           .eq('table_id', tableId);
 
+      final cleanNum = tableId.replaceAll(RegExp(r'[^0-9]'), '');
+      if (cleanNum.isNotEmpty && cleanNum != tableId) {
+        await Supabase.instance.client.from('orders_new').delete().eq('table_id', cleanNum).eq('status', 'ordering');
+        await Supabase.instance.client.from('orders_new').update({'status': 'completed'}).eq('table_id', cleanNum).neq('status', 'completed');
+        await Supabase.instance.client.from('orders_new').update({'status': 'completed'}).eq('table_id', 'table_$cleanNum').neq('status', 'completed');
+        await Supabase.instance.client.from('orders_new').update({'status': 'completed'}).eq('table_id', 'Стол $cleanNum').neq('status', 'completed');
+        await Supabase.instance.client.from('table_participants').delete().eq('table_id', cleanNum);
+        await Supabase.instance.client.from('table_sessions').delete().eq('table_id', cleanNum);
+      }
+
       _loadOrders();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Стол №$tableId полностью очищен ✅'), backgroundColor: Colors.green),
+          SnackBar(content: Text('Стол №$tableId рассчитан и освобождён. Данные сохранены в аналитике ✅'), backgroundColor: Colors.green),
         );
       }
     } catch (e) {
@@ -374,14 +396,18 @@ class _OrdersScreenState extends State<OrdersScreen>
 
   Future<void> _clearAllTableOrders() async {
     try {
-      await Supabase.instance.client.from('orders_new').delete().not('id', 'is', null);
+      // 1. Удаляем черновики
+      await Supabase.instance.client.from('orders_new').delete().eq('status', 'ordering');
+      // 2. Все активные заказы завершаем (сохраняются для аналитики!)
+      await Supabase.instance.client.from('orders_new').update({'status': 'completed'}).neq('status', 'completed');
+      // 3. Сбрасываем участников и сессии
       await Supabase.instance.client.from('table_participants').delete().not('table_id', 'is', null);
       await Supabase.instance.client.from('table_sessions').delete().not('table_id', 'is', null);
       
       _loadOrders();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Все столы и участники очищены'), backgroundColor: Colors.green),
+          const SnackBar(content: Text('Все столы освобождены. Заказы сохранены в аналитике ✅'), backgroundColor: Colors.green),
         );
       }
     } catch (e) {
@@ -462,8 +488,8 @@ class _OrdersScreenState extends State<OrdersScreen>
             padding: const EdgeInsets.all(16),
             child: ElevatedButton.icon(
               onPressed: _clearAllTableOrders,
-              icon: const Icon(Icons.delete_sweep_rounded),
-              label: const Text('ОЧИСТИТЬ ВСЕ ЗАКАЗЫ СО СТОЛОВ'),
+              icon: const Icon(Icons.check_circle_outline_rounded),
+              label: const Text('РАССЧИТАТЬ И ОСВОБОДИТЬ ВСЕ СТОЛЫ'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red.withOpacity(0.2),
                 foregroundColor: Colors.redAccent,
@@ -538,8 +564,8 @@ class _OrdersScreenState extends State<OrdersScreen>
                           const Spacer(),
                           IconButton(
                             onPressed: () => _clearTableOrders(tableId),
-                            icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 20),
-                            tooltip: 'Очистить стол',
+                            icon: const Icon(Icons.check_circle_outline_rounded, color: Color(0xFFD4A043), size: 20),
+                            tooltip: 'Рассчитать и освободить стол',
                           ),
                           if (isAcceptedByWaiter)
                             Container(
@@ -700,8 +726,8 @@ class _OrdersScreenState extends State<OrdersScreen>
             padding: const EdgeInsets.all(16),
             child: ElevatedButton.icon(
               onPressed: _clearAllDeliveryOrders,
-              icon: const Icon(Icons.delete_sweep_rounded),
-              label: const Text('ОЧИСТИТЬ ВСЕ ЗАКАЗЫ'),
+              icon: const Icon(Icons.check_circle_outline_rounded),
+              label: const Text('ОЧИСТИТЬ ЭКРАН ДОСТАВКИ'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red.withOpacity(0.2),
                 foregroundColor: Colors.redAccent,
