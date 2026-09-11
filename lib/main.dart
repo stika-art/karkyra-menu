@@ -25,7 +25,6 @@ import 'dart:js' as js;
 import 'guest/banner_carousel.dart';
 import 'waiter/waiter_app.dart' as waiter;
 import 'services/reviews_service.dart';
-import 'services/language_service.dart';
 
 Future<String?> scanQrCodeFromCameraGlobal() {
   final completer = Completer<String?>();
@@ -96,7 +95,6 @@ void main() async {
     // Фоновая загрузка данных
     SettingsService.load();
     MenuDataService.load();
-    await LanguageService.init();
 
     SystemChrome.setSystemUIOverlayStyle(
       const SystemUiOverlayStyle(
@@ -635,23 +633,25 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
       backgroundColor: Colors.black,
       elevation: 0,
       centerTitle: true,
-      toolbarHeight: 80,
+      toolbarHeight: 74,
+      titleSpacing: 0,
+      leadingWidth: 52,
       leading: Padding(
-        padding: const EdgeInsets.only(left: 16),
+        padding: const EdgeInsets.only(left: 12),
         child: Center(
           child: Container(
-            width: 48,
-            height: 48,
+            width: 38,
+            height: 38,
             decoration: BoxDecoration(
-              border: Border.all(color: Colors.white54, width: 1.5),
-              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.white38, width: 1.2),
+              borderRadius: BorderRadius.circular(12),
             ),
             child: GestureDetector(
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(builder: (context) => const TableBookingScreen()),
               ),
-              child: const Icon(Icons.event_seat_rounded, color: Colors.white, size: 22),
+              child: const Icon(Icons.event_seat_rounded, color: Colors.white, size: 20),
             ),
           ),
         ),
@@ -668,48 +668,48 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
                 'BONUM',
                 style: GoogleFonts.forum(
                   color: Colors.white,
-                  fontSize: 28,
+                  fontSize: 22,
                   fontWeight: FontWeight.w400,
-                  letterSpacing: 6.0,
+                  letterSpacing: 4.0,
                 ),
               ),
-              const SizedBox(width: 4),
+              const SizedBox(width: 3),
               Container(
                 padding: const EdgeInsets.all(2),
                 decoration: const BoxDecoration(
                   color: Color(0xFF2196F3),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.check, color: Colors.white, size: 8),
+                child: const Icon(Icons.check, color: Colors.white, size: 7),
               ),
             ],
           ),
           Transform.translate(
-            offset: const Offset(0, -1.5),
+            offset: const Offset(0, -1),
             child: Text(
               'CAFE',
               textAlign: TextAlign.center,
               style: GoogleFonts.oswald(
                 color: Colors.white38,
-                fontSize: 11,
+                fontSize: 10,
                 fontWeight: FontWeight.w500,
-                letterSpacing: 4.0,
+                letterSpacing: 3.0,
               ),
             ),
           ),
-          const SizedBox(height: 3),
+          const SizedBox(height: 2),
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.access_time_rounded, color: Color(0xFFD4A043), size: 10),
-              const SizedBox(width: 4),
+              const Icon(Icons.access_time_rounded, color: Color(0xFFD4A043), size: 9),
+              const SizedBox(width: 3),
               Text(
                 'СЕГОДНЯ: ${SettingsService.getTodaySchedule()}',
                 style: GoogleFonts.outfit(
                   color: Colors.white54,
-                  fontSize: 9,
+                  fontSize: 8.5,
                   fontWeight: FontWeight.bold,
-                  letterSpacing: 1.0,
+                  letterSpacing: 0.8,
                 ),
               ),
             ],
@@ -717,176 +717,142 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
         ],
       ),
       actions: [
-        if (!_isDeliveryActive)
-          IconButton(
-            onPressed: () async {
-              try {
-                // 1. Отправляем в базу
-                final res = await Supabase.instance.client.from('waiter_calls').insert({
-                  'table_id': widget.tableId,
-                  'status': 'pending',
-                }).select().single();
-
-                final callId = res['id'];
-
-                // 2. Подписываемся на ответ официанта
-                _waiterCallChannel?.unsubscribe();
-                _waiterCallChannel = Supabase.instance.client
-                    .channel('waiter_response_$callId')
-                    .onPostgresChanges(
-                      event: PostgresChangeEvent.update,
-                      schema: 'public',
-                      table: 'waiter_calls',
-                      filter: PostgresChangeFilter(
-                        type: PostgresChangeFilterType.eq,
-                        column: 'id',
-                        value: callId,
-                      ),
-                      callback: (payload) {
-                        final newStatus = payload.newRecord['status'];
-                        if (newStatus == 'accepted' && mounted) {
-                          setState(() => _isWaiterComing = true);
-                          
-                          // Звук (через системный клик + JS beep для веба)
-                          SystemSound.play(SystemSoundType.click);
-                          if (kIsWeb) {
-                            try {
-                              js.context.callMethod('eval', ["new Audio('https://assets.mixkit.io/active_storage/sfx/2568/2568-preview.mp3').play()"]);
-                            } catch (_) {}
-                          }
-                          
-                          _waiterCallChannel?.unsubscribe();
-                        }
-                      },
-                    );
-                _waiterCallChannel?.subscribe();
-
-                if (SettingsService.telegramNotify) {
-                  final waiterChatId = await TelegramService.getWaiterChatId(widget.tableId);
-                  // В общий чат — без кнопки
-                  await TelegramService.notifyWaiterCall(tableId: widget.tableId);
-                  // Персонально официанту — с кнопкой «Иду!»
-                  if (waiterChatId != null && waiterChatId.isNotEmpty) {
-                    await TelegramService.notifyWaiterCall(
-                      tableId: widget.tableId,
-                      callId: callId.toString(),
-                      customChatId: waiterChatId,
-                    );
-                  }
-                }
-                
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Официант вызван к столу №${widget.tableId}'),
-                      backgroundColor: const Color(0xFFD4A043),
-                      behavior: SnackBarBehavior.floating,
-                    ),
-                  );
-                }
-              } catch (e) {
-                debugPrint('Call error: $e');
-              }
-            },
-            icon: const Icon(Icons.notifications_active_rounded, color: Color(0xFFD4A043)),
-            tooltip: 'Вызвать официанта',
-          ),
-        // 1. Выбор языка (RU / KG / EN)
-        ValueListenableBuilder<String>(
-          valueListenable: LanguageService.currentLocale,
-          builder: (context, langCode, _) {
-            return PopupMenuButton<String>(
-              tooltip: 'Выбор языка / Тил / Language',
-              offset: const Offset(0, 42),
-              color: const Color(0xFF1E1E1E),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
-                side: const BorderSide(color: Colors.white12),
-              ),
-              initialValue: langCode,
-              onSelected: (code) {
-                LanguageService.setLanguage(code);
-                setState(() {});
-              },
-              child: Container(
-                margin: const EdgeInsets.symmetric(vertical: 20, horizontal: 2),
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.08),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: const Color(0xFFD4A043).withOpacity(0.35), width: 1),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      LanguageService.getFlag(langCode),
-                      style: const TextStyle(fontSize: 13),
-                    ),
-                    const SizedBox(width: 3),
-                    Text(
-                      langCode.toUpperCase(),
-                      style: GoogleFonts.outfit(
-                        color: const Color(0xFFD4A043),
-                        fontWeight: FontWeight.bold,
-                        fontSize: 11,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              itemBuilder: (context) => [
-                PopupMenuItem(
-                  value: 'ru',
-                  child: Row(
-                    children: [
-                      const Text('🇷🇺', style: TextStyle(fontSize: 16)),
-                      const SizedBox(width: 10),
-                      Text('Русский', style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.w600)),
-                    ],
-                  ),
-                ),
-                PopupMenuItem(
-                  value: 'kg',
-                  child: Row(
-                    children: [
-                      const Text('🇰🇬', style: TextStyle(fontSize: 16)),
-                      const SizedBox(width: 10),
-                      Text('Кыргызча', style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.w600)),
-                    ],
-                  ),
-                ),
-                PopupMenuItem(
-                  value: 'en',
-                  child: Row(
-                    children: [
-                      const Text('🇬🇧', style: TextStyle(fontSize: 16)),
-                      const SizedBox(width: 10),
-                      Text('English', style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.w600)),
-                    ],
-                  ),
-                ),
-              ],
-            );
-          },
-        ),
-
-        // 2. Кнопка со звёздочкой (⭐ Оценить блюда и сервис)
-        IconButton(
-          onPressed: () => showLeaveReviewDialog(context, tableId: widget.tableId),
-          icon: Container(
-            padding: const EdgeInsets.all(5),
-            decoration: BoxDecoration(
-              color: const Color(0xFFD4A043).withOpacity(0.18),
-              shape: BoxShape.circle,
-              border: Border.all(color: const Color(0xFFD4A043).withOpacity(0.6), width: 1.2),
-            ),
-            child: const Icon(Icons.star_rounded, color: Color(0xFFD4A043), size: 20),
-          ),
-          tooltip: 'Оценить блюда и сервис ⭐',
-        ),
+        // 1. Кнопка отзыва гостя со звёздочкой (⭐ Оценить блюда и сервис) — всегда видна!
         Padding(
-          padding: const EdgeInsets.only(right: 16),
+          padding: const EdgeInsets.only(right: 6),
+          child: Center(
+            child: Tooltip(
+              message: 'Оценить блюда и сервис ⭐',
+              child: GestureDetector(
+                onTap: () => showLeaveReviewDialog(context, tableId: widget.tableId),
+                child: Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFD4A043).withOpacity(0.18),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: const Color(0xFFD4A043).withOpacity(0.7),
+                      width: 1.2,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFFD4A043).withOpacity(0.25),
+                        blurRadius: 8,
+                        spreadRadius: 1,
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.star_rounded,
+                    color: Color(0xFFD4A043),
+                    size: 22,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+
+        // 2. Кнопка вызова официанта (🔔) (только в режиме столика)
+        if (!_isDeliveryActive)
+          Padding(
+            padding: const EdgeInsets.only(right: 6),
+            child: Center(
+              child: Tooltip(
+                message: 'Вызвать официанта',
+                child: GestureDetector(
+                  onTap: () async {
+                    try {
+                      // 1. Отправляем в базу
+                      final res = await Supabase.instance.client.from('waiter_calls').insert({
+                        'table_id': widget.tableId,
+                        'status': 'pending',
+                      }).select().single();
+
+                      final callId = res['id'];
+
+                      // 2. Подписываемся на ответ официанта
+                      _waiterCallChannel?.unsubscribe();
+                      _waiterCallChannel = Supabase.instance.client
+                          .channel('waiter_response_$callId')
+                          .onPostgresChanges(
+                            event: PostgresChangeEvent.update,
+                            schema: 'public',
+                            table: 'waiter_calls',
+                            filter: PostgresChangeFilter(
+                              type: PostgresChangeFilterType.eq,
+                              column: 'id',
+                              value: callId,
+                            ),
+                            callback: (payload) {
+                              final newStatus = payload.newRecord['status'];
+                              if (newStatus == 'accepted' && mounted) {
+                                setState(() => _isWaiterComing = true);
+                                
+                                // Звук (через системный клик + JS beep для веба)
+                                SystemSound.play(SystemSoundType.click);
+                                if (kIsWeb) {
+                                  try {
+                                    js.context.callMethod('eval', ["new Audio('https://assets.mixkit.io/active_storage/sfx/2568/2568-preview.mp3').play()"]);
+                                  } catch (_) {}
+                                }
+                                
+                                _waiterCallChannel?.unsubscribe();
+                              }
+                            },
+                          );
+                      _waiterCallChannel?.subscribe();
+
+                      if (SettingsService.telegramNotify) {
+                        final waiterChatId = await TelegramService.getWaiterChatId(widget.tableId);
+                        // В общий чат — без кнопки
+                        await TelegramService.notifyWaiterCall(tableId: widget.tableId);
+                        // Персонально официанту — с кнопкой «Иду!»
+                        if (waiterChatId != null && waiterChatId.isNotEmpty) {
+                          await TelegramService.notifyWaiterCall(
+                            tableId: widget.tableId,
+                            callId: callId.toString(),
+                            customChatId: waiterChatId,
+                          );
+                        }
+                      }
+                      
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Официант вызван к столу №${widget.tableId}'),
+                            backgroundColor: const Color(0xFFD4A043),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
+                    } catch (e) {
+                      debugPrint('Call error: $e');
+                    }
+                  },
+                  child: Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.08),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white24, width: 1),
+                    ),
+                    child: const Icon(
+                      Icons.notifications_active_rounded,
+                      color: Color(0xFFD4A043),
+                      size: 20,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+        // 3. Кнопка корзины / доставки
+        Padding(
+          padding: const EdgeInsets.only(right: 12),
           child: Center(
             child: Consumer<CartProvider>(
               builder: (context, cart, child) {
@@ -911,28 +877,28 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
                         alignment: Alignment.topRight,
                         children: [
                           Container(
-                            width: 44,
-                            height: 44,
+                            width: 38,
+                            height: 38,
                             decoration: BoxDecoration(
                               color: Colors.white.withOpacity(0.1),
                               shape: BoxShape.circle,
                               border: Border.all(color: Colors.white24, width: 1),
                             ),
-                            child: const Icon(Icons.local_taxi_rounded, color: Colors.white, size: 22),
+                            child: const Icon(Icons.local_taxi_rounded, color: Colors.white, size: 20),
                           ),
                           if (cart.totalItems > 0)
                             Positioned(
                               right: -4,
                               top: -4,
                               child: Container(
-                                padding: const EdgeInsets.all(6),
+                                padding: const EdgeInsets.all(5),
                                 decoration: const BoxDecoration(
                                   color: Color(0xFFFF6D3F),
                                   shape: BoxShape.circle,
                                 ),
                                 constraints: const BoxConstraints(
-                                  minWidth: 20,
-                                  minHeight: 20,
+                                  minWidth: 18,
+                                  minHeight: 18,
                                 ),
                                 child: Text(
                                   '${cart.totalItems}',
@@ -977,28 +943,28 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
                     alignment: Alignment.topRight,
                     children: [
                       Container(
-                        width: 44,
-                        height: 44,
+                        width: 38,
+                        height: 38,
                         decoration: BoxDecoration(
                           color: Colors.white.withOpacity(0.1),
                           shape: BoxShape.circle,
                           border: Border.all(color: Colors.white24, width: 1),
                         ),
-                        child: const Icon(Icons.shopping_bag_outlined, color: Colors.white, size: 22),
+                        child: const Icon(Icons.shopping_bag_outlined, color: Colors.white, size: 20),
                       ),
                       if (cart.totalItems > 0)
                         Positioned(
                           right: -4,
                           top: -4,
                           child: Container(
-                            padding: const EdgeInsets.all(6),
+                            padding: const EdgeInsets.all(5),
                             decoration: const BoxDecoration(
                               color: Color(0xFFFF6D3F),
                               shape: BoxShape.circle,
                             ),
                             constraints: const BoxConstraints(
-                              minWidth: 20,
-                              minHeight: 20,
+                              minWidth: 18,
+                              minHeight: 18,
                             ),
                             child: Text(
                               '${cart.totalItems}',
