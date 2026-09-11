@@ -440,7 +440,9 @@ class _ReviewsScreenState extends State<ReviewsScreen> {
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
-                  item.tableId.isEmpty ? 'Онлайн' : 'Стол №${item.tableId}',
+                  item.tableId.toLowerCase().contains('delivery') || item.tableId == 'Доставка'
+                      ? 'Доставка'
+                      : (item.tableId.isEmpty || item.tableId == '0' ? 'Онлайн' : 'Стол №${item.tableId}'),
                   style: GoogleFonts.outfit(
                     color: const Color(0xFFD4A043),
                     fontWeight: FontWeight.bold,

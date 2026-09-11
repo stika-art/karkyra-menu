@@ -324,7 +324,7 @@ class _WaiterOrdersScreenState extends State<WaiterOrdersScreen> {
       (t) => t['id']?.toString() == tableId || t['label']?.toString() == tableId,
       orElse: () => {},
     );
-    final tableLabel = tMatch['label'] ?? 'Стол №$tableId';
+    final tableLabel = tMatch['label'] ?? (tableId.toLowerCase().contains('delivery') ? 'Доставка' : 'Стол №$tableId');
 
     // Группируем блюда стола
     final Map<String, Map<String, dynamic>> groupedItems = {};

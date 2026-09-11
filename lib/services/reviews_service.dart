@@ -21,9 +21,13 @@ class ReviewItem {
   });
 
   factory ReviewItem.fromJson(Map<String, dynamic> json) {
+    String rawTableId = json['table_id']?.toString() ?? '';
+    if (rawTableId.toLowerCase().contains('delivery')) {
+      rawTableId = 'Доставка';
+    }
     return ReviewItem(
       id: json['id']?.toString() ?? '',
-      tableId: json['table_id']?.toString() ?? '',
+      tableId: rawTableId,
       guestName: json['guest_name']?.toString() ?? 'Гость',
       rating: (json['rating'] as num?)?.toInt() ?? 5,
       comment: json['comment']?.toString() ?? '',
@@ -162,9 +166,14 @@ class ReviewsService {
   }) async {
     final now = DateTime.now();
     final newId = 'rev_${now.millisecondsSinceEpoch}_${(1000 + (now.microsecond % 9000))}';
+    final isDelivery = tableId.toLowerCase().contains('delivery') || tableId == 'Доставка';
+    final normalizedTableId = isDelivery
+        ? 'Доставка'
+        : (tableId == '0' ? '' : tableId);
+
     final newReview = ReviewItem(
       id: newId,
-      tableId: tableId,
+      tableId: normalizedTableId,
       guestName: guestName.trim().isEmpty ? 'Гость' : guestName.trim(),
       rating: rating.clamp(1, 5),
       comment: comment.trim(),
@@ -204,7 +213,14 @@ class ReviewsService {
       // 3. Отправляем моментальное уведомление в Telegram заведения
       try {
         final stars = '⭐' * newReview.rating;
-        final tableLabel = newReview.tableId.isEmpty ? 'Онлайн' : '№${newReview.tableId}';
+        final String tableLabel;
+        if (newReview.tableId == 'Доставка') {
+          tableLabel = '🛵 Доставка';
+        } else if (newReview.tableId.isEmpty || newReview.tableId == '0') {
+          tableLabel = 'Онлайн';
+        } else {
+          tableLabel = '№${newReview.tableId}';
+        }
         final isNegative = newReview.rating <= 3;
         final header = isNegative
             ? '⚠️ <b>ВНИМАНИЕ! НИЗКАЯ ОЦЕНКА ГОСТЯ:</b>'
@@ -212,7 +228,7 @@ class ReviewsService {
 
         final msg = '$header\n\n'
             '⭐ <b>Оценка:</b> $stars (${newReview.rating}/5)\n'
-            '📍 <b>Стол:</b> $tableLabel\n'
+            '📍 <b>Формат:</b> $tableLabel\n'
             '👤 <b>Гость:</b> ${newReview.guestName}\n'
             '💬 <b>Комментарий:</b> ${newReview.comment.isEmpty ? '<i>(без комментария)</i>' : newReview.comment}';
 

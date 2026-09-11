@@ -352,21 +352,26 @@ class _GuestReviewsSheetContentState extends State<GuestReviewsSheetContent> {
                                       ),
                                     ),
                                     if (item.tableId.isNotEmpty && item.tableId != '0')
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                        decoration: BoxDecoration(
-                                          color: Colors.white.withOpacity(0.08),
-                                          borderRadius: BorderRadius.circular(8),
-                                          border: Border.all(color: Colors.white12),
-                                        ),
-                                        child: Text(
-                                          'Стол №' + item.tableId,
-                                          style: GoogleFonts.outfit(
-                                            color: const Color(0xFFD4A043),
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                        ),
+                                      Builder(
+                                        builder: (context) {
+                                          final isDelivery = item.tableId.toLowerCase().contains('delivery') || item.tableId == 'Доставка';
+                                          return Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                            decoration: BoxDecoration(
+                                              color: Colors.white.withOpacity(0.08),
+                                              borderRadius: BorderRadius.circular(8),
+                                              border: Border.all(color: Colors.white12),
+                                            ),
+                                            child: Text(
+                                              isDelivery ? 'Доставка' : 'Стол №${item.tableId}',
+                                              style: GoogleFonts.outfit(
+                                                color: const Color(0xFFD4A043),
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                          );
+                                        },
                                       ),
                                   ],
                                 ),

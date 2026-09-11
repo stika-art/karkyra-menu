@@ -522,7 +522,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
-                              'Стол №$tableId',
+                              tableId.toLowerCase().contains('delivery') ? 'Доставка' : 'Стол №$tableId',
                               style: GoogleFonts.outfit(
                                 color: isAcceptedByWaiter ? Colors.white : Colors.black,
                                 fontWeight: FontWeight.bold,
@@ -899,7 +899,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                   children: [
                     Row(
                       children: [
-                        Text('СТОЛ №$tableId',
+                        Text(tableId.toLowerCase().contains('delivery') ? 'ДОСТАВКА' : 'СТОЛ №$tableId',
                           style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
                         if (waiterName.isNotEmpty) ...[
                           const SizedBox(width: 8),

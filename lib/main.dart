@@ -1959,11 +1959,19 @@ void showLeaveReviewDialog(BuildContext context, {String tableId = ''}) {
                 ),
               ),
               const SizedBox(height: 4),
-              Text(
-                currentTableId.isNotEmpty && currentTableId != '0'
-                    ? 'Bonum Cafe • Стол №$currentTableId'
-                    : 'Bonum Cafe',
-                style: GoogleFonts.outfit(color: const Color(0xFFD4A043), fontSize: 13),
+              Builder(
+                builder: (context) {
+                  final isDelivery = currentTableId.toLowerCase().contains('delivery') || currentTableId == 'Доставка';
+                  final subtitleText = isDelivery
+                      ? 'Bonum Cafe • Доставка'
+                      : (currentTableId.isNotEmpty && currentTableId != '0'
+                          ? 'Bonum Cafe • Стол №$currentTableId'
+                          : 'Bonum Cafe');
+                  return Text(
+                    subtitleText,
+                    style: GoogleFonts.outfit(color: const Color(0xFFD4A043), fontSize: 13),
+                  );
+                },
               ),
               const SizedBox(height: 20),
               // Звездочки
@@ -2051,8 +2059,9 @@ void showLeaveReviewDialog(BuildContext context, {String tableId = ''}) {
                             Provider.of<CartProvider>(context, listen: false).setUserName(guestName);
                           } catch (_) {}
                         }
+                        final isDelivery = currentTableId.toLowerCase().contains('delivery') || currentTableId == 'Доставка';
                         final ok = await ReviewsService.addReview(
-                          tableId: currentTableId,
+                          tableId: isDelivery ? 'Доставка' : currentTableId,
                           guestName: guestName,
                           rating: selectedRating,
                           comment: commentCtrl.text.trim(),
@@ -2158,7 +2167,9 @@ class _SharedCartScreenState extends State<SharedCartScreen> {
                               onPressed: () => Navigator.pop(context),
                             ),
                             Text(
-                              "КОРЗИНА СТОЛА № ${widget.tableNumber}",
+                              widget.tableNumber.toLowerCase().contains('delivery')
+                                  ? "КОРЗИНА"
+                                  : "КОРЗИНА СТОЛА № ${widget.tableNumber}",
                               style: GoogleFonts.outfit(
                                 color: Colors.white,
                                 fontSize: 20,
@@ -2787,7 +2798,9 @@ class _SharedCartScreenState extends State<SharedCartScreen> {
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  "Чтобы отправить заказ на кухню стола №${widget.tableNumber}, пожалуйста, отсканируйте QR-код на вашем столе для подтверждения присутствия в ресторане.",
+                  widget.tableNumber.toLowerCase().contains('delivery')
+                      ? "Чтобы отправить заказ прямо на кухню ресторана, пожалуйста, отсканируйте QR-код на вашем столе для подтверждения присутствия в зале."
+                      : "Чтобы отправить заказ на кухню стола №${widget.tableNumber}, пожалуйста, отсканируйте QR-код на вашем столе для подтверждения присутствия в ресторане.",
                   textAlign: TextAlign.center,
                   style: GoogleFonts.outfit(color: Colors.white70, fontSize: 13, height: 1.4),
                 ),
@@ -2852,8 +2865,9 @@ class _SharedCartScreenState extends State<SharedCartScreen> {
     if (result != null && result.isNotEmpty) {
       try {
         final table = parseTableFromQr(result);
+        final isDelivery = widget.tableNumber.toLowerCase().contains('delivery');
         
-        if (table != null && (table == widget.tableNumber || table == 'table_${widget.tableNumber}')) {
+        if (table != null && (isDelivery || table == widget.tableNumber || table == 'table_${widget.tableNumber}')) {
           await cart.confirmOrder();
           
           if (context.mounted) {
@@ -2874,7 +2888,9 @@ class _SharedCartScreenState extends State<SharedCartScreen> {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(
-                  'Неверный QR-код. Пожалуйста, отсканируйте код именно вашего стола №${widget.tableNumber}!',
+                  isDelivery
+                      ? 'Неверный QR-код стола. Пожалуйста, отсканируйте QR-код столика в ресторане!'
+                      : 'Неверный QR-код. Пожалуйста, отсканируйте код именно вашего стола №${widget.tableNumber}!',
                   style: GoogleFonts.outfit(fontWeight: FontWeight.bold, color: Colors.white),
                 ),
                 backgroundColor: Colors.redAccent,
