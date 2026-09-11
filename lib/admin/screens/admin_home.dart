@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'orders_screen.dart';
+import 'analytics_screen.dart';
 import 'menu_management_screen.dart';
 import 'ingredients_screen.dart';
-import 'orders_screen.dart';
 import 'tables_screen.dart';
 import 'banner_screen.dart';
 import 'settings_screen.dart';
@@ -22,6 +23,7 @@ class _AdminHomeState extends State<AdminHome> {
 
   final List<_NavItem> _navItems = [
     _NavItem(icon: Icons.receipt_long_rounded, label: 'Заказы'),
+    _NavItem(icon: Icons.insights_rounded, label: 'Аналитика'),
     _NavItem(icon: Icons.restaurant_menu_rounded, label: 'Меню'),
     _NavItem(icon: Icons.eco_rounded, label: 'Ингредиенты'),
     _NavItem(icon: Icons.table_restaurant_rounded, label: 'Столы'),
@@ -34,6 +36,7 @@ class _AdminHomeState extends State<AdminHome> {
 
   final List<Widget> _screens = [
     const OrdersScreen(),
+    const AnalyticsScreen(),
     const MenuManagementScreen(),
     const IngredientsScreen(),
     const TablesScreen(),
@@ -83,42 +86,48 @@ class _AdminHomeState extends State<AdminHome> {
                   ],
                 ),
               ),
-              const SizedBox(height: 32),
-              ...List.generate(_navItems.length, (i) {
-                final item = _navItems[i];
-                final isSelected = _selectedIndex == i;
-                return GestureDetector(
-                  onTap: () => setState(() => _selectedIndex = i),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: isSelected ? const Color(0xFFD4A043).withOpacity(0.12) : Colors.transparent,
-                      borderRadius: BorderRadius.circular(12),
-                      border: isSelected
-                          ? Border.all(color: const Color(0xFFD4A043).withOpacity(0.3), width: 1)
-                          : null,
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(item.icon,
-                          color: isSelected ? const Color(0xFFD4A043) : Colors.white38,
-                          size: 22,
-                        ),
-                        const SizedBox(width: 12),
-                        Text(item.label,
-                          style: GoogleFonts.outfit(
-                            color: isSelected ? const Color(0xFFD4A043) : Colors.white54,
-                            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                            fontSize: 15,
+              const SizedBox(height: 24),
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Column(
+                    children: List.generate(_navItems.length, (i) {
+                      final item = _navItems[i];
+                      final isSelected = _selectedIndex == i;
+                      return GestureDetector(
+                        onTap: () => setState(() => _selectedIndex = i),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: isSelected ? const Color(0xFFD4A043).withOpacity(0.12) : Colors.transparent,
+                            borderRadius: BorderRadius.circular(12),
+                            border: isSelected
+                                ? Border.all(color: const Color(0xFFD4A043).withOpacity(0.3), width: 1)
+                                : null,
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(item.icon,
+                                color: isSelected ? const Color(0xFFD4A043) : Colors.white38,
+                                size: 22,
+                              ),
+                              const SizedBox(width: 12),
+                              Text(item.label,
+                                style: GoogleFonts.outfit(
+                                  color: isSelected ? const Color(0xFFD4A043) : Colors.white54,
+                                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                                  fontSize: 15,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                      ],
-                    ),
+                      );
+                    }),
                   ),
-                );
-              }),
+                ),
+              ),
             ],
           ),
         ),
@@ -132,17 +141,50 @@ class _AdminHomeState extends State<AdminHome> {
     return Column(
       children: [
         Expanded(child: _screens[_selectedIndex]),
-        BottomNavigationBar(
-          currentIndex: _selectedIndex,
-          onTap: (i) => setState(() => _selectedIndex = i),
-          backgroundColor: const Color(0xFF1A1A1A),
-          selectedItemColor: const Color(0xFFD4A043),
-          unselectedItemColor: Colors.white38,
-          type: BottomNavigationBarType.fixed,
-          items: _navItems.map((item) => BottomNavigationBarItem(
-            icon: Icon(item.icon),
-            label: item.label,
-          )).toList(),
+        Container(
+          height: 60,
+          decoration: const BoxDecoration(
+            color: Color(0xFF1A1A1A),
+            border: Border(top: BorderSide(color: Colors.white10, width: 0.5)),
+          ),
+          child: SafeArea(
+            top: false,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              itemCount: _navItems.length,
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              itemBuilder: (context, i) {
+                final item = _navItems[i];
+                final isSelected = _selectedIndex == i;
+                return GestureDetector(
+                  onTap: () => setState(() => _selectedIndex = i),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                    color: Colors.transparent,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          item.icon,
+                          size: 20,
+                          color: isSelected ? const Color(0xFFD4A043) : Colors.white38,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          item.label,
+                          style: GoogleFonts.outfit(
+                            fontSize: 11,
+                            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                            color: isSelected ? const Color(0xFFD4A043) : Colors.white54,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
         ),
       ],
     );
