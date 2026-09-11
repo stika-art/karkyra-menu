@@ -25,6 +25,7 @@ import 'dart:js' as js;
 import 'guest/banner_carousel.dart';
 import 'waiter/waiter_app.dart' as waiter;
 import 'services/reviews_service.dart';
+import 'services/language_service.dart';
 
 Future<String?> scanQrCodeFromCameraGlobal() {
   final completer = Completer<String?>();
@@ -95,6 +96,7 @@ void main() async {
     // Фоновая загрузка данных
     SettingsService.load();
     MenuDataService.load();
+    await LanguageService.init();
 
     SystemChrome.setSystemUIOverlayStyle(
       const SystemUiOverlayStyle(
@@ -662,7 +664,6 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
             mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const SizedBox(width: 24),
               Text(
                 'BONUM',
                 style: GoogleFonts.forum(
@@ -790,10 +791,99 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
             icon: const Icon(Icons.notifications_active_rounded, color: Color(0xFFD4A043)),
             tooltip: 'Вызвать официанта',
           ),
+        // 1. Выбор языка (RU / KG / EN)
+        ValueListenableBuilder<String>(
+          valueListenable: LanguageService.currentLocale,
+          builder: (context, langCode, _) {
+            return PopupMenuButton<String>(
+              tooltip: 'Выбор языка / Тил / Language',
+              offset: const Offset(0, 42),
+              color: const Color(0xFF1E1E1E),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+                side: const BorderSide(color: Colors.white12),
+              ),
+              initialValue: langCode,
+              onSelected: (code) {
+                LanguageService.setLanguage(code);
+                setState(() {});
+              },
+              child: Container(
+                margin: const EdgeInsets.symmetric(vertical: 20, horizontal: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFD4A043).withOpacity(0.35), width: 1),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      LanguageService.getFlag(langCode),
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                    const SizedBox(width: 3),
+                    Text(
+                      langCode.toUpperCase(),
+                      style: GoogleFonts.outfit(
+                        color: const Color(0xFFD4A043),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              itemBuilder: (context) => [
+                PopupMenuItem(
+                  value: 'ru',
+                  child: Row(
+                    children: [
+                      const Text('🇷🇺', style: TextStyle(fontSize: 16)),
+                      const SizedBox(width: 10),
+                      Text('Русский', style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'kg',
+                  child: Row(
+                    children: [
+                      const Text('🇰🇬', style: TextStyle(fontSize: 16)),
+                      const SizedBox(width: 10),
+                      Text('Кыргызча', style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'en',
+                  child: Row(
+                    children: [
+                      const Text('🇬🇧', style: TextStyle(fontSize: 16)),
+                      const SizedBox(width: 10),
+                      Text('English', style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+
+        // 2. Кнопка со звёздочкой (⭐ Оценить блюда и сервис)
         IconButton(
           onPressed: () => showLeaveReviewDialog(context, tableId: widget.tableId),
-          icon: const Icon(Icons.star_outline_rounded, color: Color(0xFFD4A043)),
-          tooltip: 'Оставить отзыв',
+          icon: Container(
+            padding: const EdgeInsets.all(5),
+            decoration: BoxDecoration(
+              color: const Color(0xFFD4A043).withOpacity(0.18),
+              shape: BoxShape.circle,
+              border: Border.all(color: const Color(0xFFD4A043).withOpacity(0.6), width: 1.2),
+            ),
+            child: const Icon(Icons.star_rounded, color: Color(0xFFD4A043), size: 20),
+          ),
+          tooltip: 'Оценить блюда и сервис ⭐',
         ),
         Padding(
           padding: const EdgeInsets.only(right: 16),
@@ -1929,14 +2019,18 @@ void showLeaveReviewDialog(BuildContext context, {String tableId = ''}) {
                 selectedRating == 5
                     ? 'Великолепно! 😍'
                     : selectedRating == 4
-                        ? 'Хорошо, понравилось 👍'
+                        ? 'Хорошо 👍'
                         : selectedRating == 3
-                            ? 'Нормально, есть замечания 🤔'
-                            : 'Не понравилось 🙁',
+                            ? 'Нормально 🤔'
+                            : selectedRating == 2
+                                ? 'Не понравилось 🙁'
+                                : 'Ужасно 😡',
                 style: GoogleFonts.outfit(
-                  color: selectedRating >= 4 ? const Color(0xFFD4A043) : Colors.orangeAccent,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
+                  color: selectedRating >= 4
+                      ? const Color(0xFFD4A043)
+                      : (selectedRating == 3 ? Colors.orangeAccent : Colors.redAccent),
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
               const SizedBox(height: 18),
@@ -1980,9 +2074,15 @@ void showLeaveReviewDialog(BuildContext context, {String tableId = ''}) {
                     ? null
                     : () async {
                         setModalState(() => isSubmitting = true);
+                        final guestName = nameCtrl.text.trim();
+                        if (guestName.isNotEmpty) {
+                          try {
+                            Provider.of<CartProvider>(context, listen: false).setUserName(guestName);
+                          } catch (_) {}
+                        }
                         final ok = await ReviewsService.addReview(
                           tableId: currentTableId,
-                          guestName: nameCtrl.text.trim(),
+                          guestName: guestName,
                           rating: selectedRating,
                           comment: commentCtrl.text.trim(),
                         );
@@ -2411,25 +2511,41 @@ class _SharedCartScreenState extends State<SharedCartScreen> {
                 style: GoogleFonts.outfit(fontWeight: FontWeight.bold, color: Colors.black, fontSize: 16),
               ),
             ),
-            if (isConfirmed) ...[
-              const SizedBox(height: 10),
-              OutlinedButton.icon(
-                onPressed: () => showLeaveReviewDialog(context, tableId: cart.tableId),
-                icon: const Icon(Icons.star_rounded, color: Color(0xFFD4A043), size: 20),
-                label: Text(
-                  'ОЦЕНИТЬ БЛЮДА И СЕРВИС',
-                  style: GoogleFonts.outfit(
-                    color: const Color(0xFF2C2518),
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
-                    letterSpacing: 0.5,
+            if (isConfirmed || cart.items.any((item) => item.status == 'confirmed' || item.status == 'processing' || item.status == 'served' || item.status == 'completed')) ...[
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFD4A043), Color(0xFFE8B65A)],
                   ),
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFFD4A043).withOpacity(0.35),
+                      blurRadius: 14,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
                 ),
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: Color(0xFFD4A043), width: 1.5),
-                  backgroundColor: const Color(0xFFFFF9EE),
-                  minimumSize: const Size(double.infinity, 48),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                child: ElevatedButton.icon(
+                  onPressed: () => showLeaveReviewDialog(context, tableId: cart.tableId),
+                  icon: const Icon(Icons.star_rounded, color: Colors.black, size: 22),
+                  label: Text(
+                    'ОЦЕНИТЬ БЛЮДА И СЕРВИС',
+                    style: GoogleFonts.outfit(
+                      color: Colors.black,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 14,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.transparent,
+                    shadowColor: Colors.transparent,
+                    minimumSize: const Size(double.infinity, 52),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  ),
                 ),
               ),
             ],
