@@ -333,7 +333,7 @@ class _DishesListScreenState extends State<DishesListScreen> {
     try {
       final dishRes = await Supabase.instance.client
           .from('menu_items_db').select().eq('category_id', widget.category['id'])
-          .eq('is_available', true).order('sort_order');
+          .order('sort_order');
       final ingRes = await Supabase.instance.client
           .from('ingredients').select().eq('is_active', true).order('name');
       setState(() {
@@ -663,9 +663,53 @@ class _DishesListScreenState extends State<DishesListScreen> {
     );
   }
 
-  Future<void> _deleteDish(String id) async {
-    await Supabase.instance.client.from('menu_items_db').update({'is_available': false}).eq('id', id);
-    _load();
+  Future<void> _toggleAvailability(String id, bool currentStatus) async {
+    final nextStatus = !currentStatus;
+    try {
+      await Supabase.instance.client
+          .from('menu_items_db')
+          .update({'is_available': nextStatus})
+          .eq('id', id);
+      _load();
+      _snack(
+        nextStatus ? 'Блюдо возвращено в меню' : 'Блюдо поставлено на СТОП-ЛИСТ',
+        nextStatus ? const Color(0xFF22C55E) : Colors.orangeAccent,
+      );
+    } catch (e) {
+      _snack('Ошибка: $e', Colors.red);
+    }
+  }
+
+  Future<void> _deleteDish(String id, String title) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Удалить блюдо?', style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold)),
+        content: Text('Блюдо "$title" будет навсегда удалено из базы данных.', style: GoogleFonts.outfit(color: Colors.white70)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Отмена', style: TextStyle(color: Colors.white54)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            child: const Text('Удалить', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true) {
+      try {
+        await Supabase.instance.client.from('menu_items_db').delete().eq('id', id);
+        _load();
+        _snack('Блюдо удалено', Colors.redAccent);
+      } catch (e) {
+        _snack('Ошибка при удалении: $e', Colors.red);
+      }
+    }
   }
 
   Widget _sectionLabel(String text) => Text(text,
@@ -750,29 +794,61 @@ class _DishesListScreenState extends State<DishesListScreen> {
                         itemCount: _dishes.length,
                         itemBuilder: (_, i) {
                           final d = _dishes[i];
+                          final bool isAvailable = d['is_available'] ?? true;
                           return Container(
                             margin: const EdgeInsets.only(bottom: 12),
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF1E1E1E),
+                              color: isAvailable ? const Color(0xFF1E1E1E) : const Color(0xFF241818),
                               borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: isAvailable ? Colors.transparent : Colors.redAccent.withOpacity(0.5),
+                                width: 1.5,
+                              ),
                             ),
                             child: Row(children: [
                               ClipRRect(
                                 borderRadius: BorderRadius.circular(10),
-                                child: d['photo_url'] != null
-                                    ? Image.network(d['photo_url'], width: 70, height: 70, fit: BoxFit.cover,
-                                        errorBuilder: (_, __, ___) => _photoPh370())
-                                    : _photoPh370(),
+                                child: Opacity(
+                                  opacity: isAvailable ? 1.0 : 0.4,
+                                  child: d['photo_url'] != null
+                                      ? Image.network(d['photo_url'], width: 70, height: 70, fit: BoxFit.cover,
+                                          errorBuilder: (_, __, ___) => _photoPh370())
+                                      : _photoPh370(),
+                                ),
                               ),
                               const SizedBox(width: 12),
                               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                Text(d['title'] ?? '',
-                                  style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(d['title'] ?? '',
+                                        style: GoogleFonts.outfit(
+                                          color: isAvailable ? Colors.white : Colors.white60,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 15,
+                                          decoration: isAvailable ? null : TextDecoration.lineThrough,
+                                        )),
+                                    ),
+                                    if (!isAvailable)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: Colors.redAccent.withOpacity(0.2),
+                                          borderRadius: BorderRadius.circular(6),
+                                          border: Border.all(color: Colors.redAccent.withOpacity(0.5)),
+                                        ),
+                                        child: Text(
+                                          'НА СТОПЕ',
+                                          style: GoogleFonts.outfit(color: Colors.redAccent, fontSize: 10, fontWeight: FontWeight.bold),
+                                        ),
+                                      ),
+                                  ],
+                                ),
                                 if (d['weight'] != null)
                                   Text(d['weight'], style: GoogleFonts.outfit(color: Colors.white38, fontSize: 12)),
                                 Text('${(d['price'] ?? 0).toStringAsFixed(0)} сом',
-                                  style: GoogleFonts.outfit(color: const Color(0xFFD4A043), fontWeight: FontWeight.bold)),
+                                  style: GoogleFonts.outfit(color: isAvailable ? const Color(0xFFD4A043) : Colors.white38, fontWeight: FontWeight.bold)),
                                 Wrap(spacing: 4, children: [
                                   if (d['is_top'] == true) _tag('Топ', const Color(0xFFFF8C00)),
                                   if (d['is_new'] == true) _tag('Новинка', const Color(0xFFFFD700)),
@@ -790,12 +866,21 @@ class _DishesListScreenState extends State<DishesListScreen> {
                               ])),
                               Column(children: [
                                 IconButton(
+                                  tooltip: isAvailable ? 'Поставить на СТОП-ЛИСТ' : 'Вернуть в меню',
+                                  icon: Icon(
+                                    isAvailable ? Icons.pause_circle_outline_rounded : Icons.play_circle_fill_rounded,
+                                    color: isAvailable ? Colors.orangeAccent : const Color(0xFF22C55E),
+                                    size: 24,
+                                  ),
+                                  onPressed: () => _toggleAvailability(d['id'], isAvailable),
+                                ),
+                                IconButton(
                                   icon: const Icon(Icons.edit_rounded, color: Color(0xFFD4A043), size: 20),
                                   onPressed: () => _showEditDish(d),
                                 ),
                                 IconButton(
-                                  icon: const Icon(Icons.delete_outline_rounded, color: Colors.red, size: 20),
-                                  onPressed: () => _deleteDish(d['id']),
+                                  icon: const Icon(Icons.delete_outline_rounded, color: Colors.white38, size: 20),
+                                  onPressed: () => _deleteDish(d['id'], d['title'] ?? ''),
                                 ),
                               ]),
                             ]),
