@@ -36,19 +36,50 @@ class _AdminHomeState extends State<AdminHome> {
     _NavItem(icon: Icons.settings_rounded, label: 'Настройки'),
   ];
 
-  final List<Widget> _screens = [
-    const OrdersScreen(),
-    const AnalyticsScreen(),
-    const ReviewsScreen(),
-    const MenuManagementScreen(),
-    const IngredientsScreen(),
-    const TablesScreen(),
-    const BannerScreen(),
-    const BanquetScreen(),
-    const WaitersScreen(),
-    const ScheduleScreen(),
-    const SettingsScreen(),
-  ];
+  Widget _buildSelectedScreen() {
+    Widget screen;
+    switch (_selectedIndex) {
+      case 0:
+        screen = const OrdersScreen();
+        break;
+      case 1:
+        screen = const AnalyticsScreen();
+        break;
+      case 2:
+        screen = const ReviewsScreen();
+        break;
+      case 3:
+        screen = const MenuManagementScreen();
+        break;
+      case 4:
+        screen = const IngredientsScreen();
+        break;
+      case 5:
+        screen = const TablesScreen();
+        break;
+      case 6:
+        screen = const BannerScreen();
+        break;
+      case 7:
+        screen = const BanquetScreen();
+        break;
+      case 8:
+        screen = const WaitersScreen();
+        break;
+      case 9:
+        screen = const ScheduleScreen();
+        break;
+      case 10:
+        screen = const SettingsScreen();
+        break;
+      default:
+        screen = const OrdersScreen();
+    }
+    return KeyedSubtree(
+      key: ValueKey(_selectedIndex),
+      child: screen,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -135,7 +166,7 @@ class _AdminHomeState extends State<AdminHome> {
           ),
         ),
         // Основной контент
-        Expanded(child: _screens[_selectedIndex]),
+        Expanded(child: _buildSelectedScreen()),
       ],
     );
   }
@@ -143,7 +174,7 @@ class _AdminHomeState extends State<AdminHome> {
   Widget _buildNarrowLayout() {
     return Column(
       children: [
-        Expanded(child: _screens[_selectedIndex]),
+        Expanded(child: _buildSelectedScreen()),
         Container(
           height: 60,
           decoration: const BoxDecoration(

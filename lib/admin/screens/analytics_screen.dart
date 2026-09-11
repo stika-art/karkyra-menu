@@ -21,18 +21,60 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   List<Map<String, dynamic>> _rawDeliveryOrders = [];
   List<Map<String, dynamic>> _rawCalls = [];
   Map<String, String> _tableLabels = {};
+  Map<String, Map<String, dynamic>> _menuMap = {};
+  RealtimeChannel? _ordersSub;
 
   @override
   void initState() {
     super.initState();
     _fetchData();
+    _subscribeRealtime();
   }
 
-  Future<void> _fetchData() async {
-    setState(() => _isLoading = true);
+  @override
+  void dispose() {
+    _ordersSub?.unsubscribe();
+    super.dispose();
+  }
+
+  void _subscribeRealtime() {
+    try {
+      _ordersSub = Supabase.instance.client
+          .channel('public:orders_analytics_feed')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'orders_new',
+            callback: (payload) {
+              if (mounted) {
+                _fetchData(silent: true);
+              }
+            },
+          )
+          .subscribe();
+    } catch (e) {
+      debugPrint('Realtime sub error in analytics: $e');
+    }
+  }
+
+  Future<void> _fetchData({bool silent = false}) async {
+    if (!silent) {
+      setState(() => _isLoading = true);
+    }
     try {
       if (MenuDataService.items.isEmpty) {
         await MenuDataService.load();
+      }
+
+      // 1. Загружаем все блюда напрямую из базы (включая стоп-лист и архив) для 100% точности цен
+      final menuItemsRes = await Supabase.instance.client
+          .from('menu_items_db')
+          .select('id, title, price, photo_url')
+          .timeout(const Duration(seconds: 8));
+
+      final Map<String, Map<String, dynamic>> mMap = {};
+      for (var m in (menuItemsRes as List)) {
+        mMap[m['id'].toString()] = Map<String, dynamic>.from(m);
       }
 
       final tableRes = await Supabase.instance.client
@@ -69,6 +111,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           _rawDeliveryOrders = List<Map<String, dynamic>>.from(deliveryRes);
           _rawCalls = List<Map<String, dynamic>>.from(callsRes);
           _tableLabels = tMap;
+          _menuMap = mMap;
           _isLoading = false;
         });
       }
@@ -97,6 +140,36 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       case AnalyticsPeriod.all:
         return true;
     }
+  }
+
+  String _getItemTitle(String? id) {
+    if (id == null || id.isEmpty) return 'Блюдо';
+    if (_menuMap.containsKey(id)) {
+      final t = _menuMap[id]!['title']?.toString();
+      if (t != null && t.isNotEmpty) return t;
+    }
+    final m = _findMenuItem(id);
+    return m?.title ?? 'Блюдо #$id';
+  }
+
+  double _getItemPrice(String? id) {
+    if (id == null || id.isEmpty) return 0.0;
+    if (_menuMap.containsKey(id)) {
+      final p = (_menuMap[id]!['price'] as num?)?.toDouble();
+      if (p != null && p > 0) return p;
+    }
+    final m = _findMenuItem(id);
+    return m?.price ?? 0.0;
+  }
+
+  String _getItemImage(String? id) {
+    if (id == null || id.isEmpty) return '';
+    if (_menuMap.containsKey(id)) {
+      final img = _menuMap[id]!['photo_url']?.toString();
+      if (img != null && img.isNotEmpty) return img;
+    }
+    final m = _findMenuItem(id);
+    return (m != null && m.images.isNotEmpty) ? m.images.first : '';
   }
 
   MenuItem? _findMenuItem(String? id) {
@@ -139,8 +212,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     for (var o in filteredTableOrders) {
       final mId = o['menu_item_id']?.toString();
       final qty = (o['quantity'] as num?)?.toInt() ?? 1;
-      final mItem = _findMenuItem(mId);
-      final price = mItem?.price ?? 0.0;
+      final price = _getItemPrice(mId);
       tableRevenue += price * qty;
     }
 
@@ -173,15 +245,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       final mId = o['menu_item_id']?.toString() ?? '';
       if (mId.isEmpty) continue;
       final qty = (o['quantity'] as num?)?.toInt() ?? 1;
-      final mItem = _findMenuItem(mId);
-      final price = mItem?.price ?? 0.0;
+      final price = _getItemPrice(mId);
       final rev = price * qty;
 
       if (!dishStats.containsKey(mId)) {
         dishStats[mId] = _DishStat(
           id: mId,
-          title: mItem?.title ?? 'Блюдо #$mId',
-          imageUrl: (mItem != null && mItem.images.isNotEmpty) ? mItem.images.first : '',
+          title: _getItemTitle(mId),
+          imageUrl: _getItemImage(mId),
           price: price,
           quantity: qty,
           revenue: rev,
@@ -230,8 +301,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     for (var o in filteredTableOrders) {
       final tId = o['table_id']?.toString() ?? 'Не указан';
       final qty = (o['quantity'] as num?)?.toInt() ?? 1;
-      final mItem = _findMenuItem(o['menu_item_id']?.toString());
-      final price = mItem?.price ?? 0.0;
+      final price = _getItemPrice(o['menu_item_id']?.toString());
       final rev = price * qty;
 
       if (!tableStats.containsKey(tId)) {

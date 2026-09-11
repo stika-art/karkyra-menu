@@ -260,17 +260,14 @@ class WaiterService {
   /// Очистить/освободить стол (закрыть заказы в completed для аналитики и сбросить сессию)
   static Future<bool> clearTableOrders(String tableId) async {
     try {
-      // 1. Удаляем черновики (неподтвержденные)
-      await _client.from('orders_new').delete().eq('table_id', tableId).eq('status', 'ordering');
-      // 2. Все подтвержденные заказы закрываем в completed (сохраняются для аналитики!)
+      // 1. Все заказы стола любого статуса переводим в completed (сохраняются для аналитики!)
       await _client.from('orders_new').update({'status': 'completed'}).eq('table_id', tableId).neq('status', 'completed');
-      // 3. Сбрасываем сессию и участников
+      // 2. Сбрасываем сессию и участников
       await _client.from('table_sessions').delete().eq('table_id', tableId);
       await _client.from('table_participants').delete().eq('table_id', tableId);
 
       final cleanNum = tableId.replaceAll(RegExp(r'[^0-9]'), '');
       if (cleanNum.isNotEmpty && cleanNum != tableId) {
-        await _client.from('orders_new').delete().eq('table_id', cleanNum).eq('status', 'ordering');
         await _client.from('orders_new').update({'status': 'completed'}).eq('table_id', cleanNum).neq('status', 'completed');
         await _client.from('orders_new').update({'status': 'completed'}).eq('table_id', 'table_$cleanNum').neq('status', 'completed');
         await _client.from('orders_new').update({'status': 'completed'}).eq('table_id', 'Стол $cleanNum').neq('status', 'completed');

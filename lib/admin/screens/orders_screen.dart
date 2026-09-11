@@ -347,27 +347,20 @@ class _OrdersScreenState extends State<OrdersScreen>
 
   Future<void> _clearTableOrders(String tableId) async {
     try {
-      // 1. Удаляем не подтвержденные черновики
-      await Supabase.instance.client
-          .from('orders_new')
-          .delete()
-          .eq('table_id', tableId)
-          .eq('status', 'ordering');
-
-      // 2. Все подтвержденные заказы стола переводим в completed (сохраняются для аналитики!)
+      // 1. Все заказы стола любого статуса переводим в completed (гарантированно сохраняются для аналитики!)
       await Supabase.instance.client
           .from('orders_new')
           .update({'status': 'completed'})
           .eq('table_id', tableId)
           .neq('status', 'completed');
       
-      // 3. Удаляем участников (призраков) стола
+      // 2. Удаляем участников (сессию гостей) стола
       await Supabase.instance.client
           .from('table_participants')
           .delete()
           .eq('table_id', tableId);
       
-      // 4. Сбрасываем сессию
+      // 3. Сбрасываем сессию стола
       await Supabase.instance.client
           .from('table_sessions')
           .delete()
@@ -375,7 +368,6 @@ class _OrdersScreenState extends State<OrdersScreen>
 
       final cleanNum = tableId.replaceAll(RegExp(r'[^0-9]'), '');
       if (cleanNum.isNotEmpty && cleanNum != tableId) {
-        await Supabase.instance.client.from('orders_new').delete().eq('table_id', cleanNum).eq('status', 'ordering');
         await Supabase.instance.client.from('orders_new').update({'status': 'completed'}).eq('table_id', cleanNum).neq('status', 'completed');
         await Supabase.instance.client.from('orders_new').update({'status': 'completed'}).eq('table_id', 'table_$cleanNum').neq('status', 'completed');
         await Supabase.instance.client.from('orders_new').update({'status': 'completed'}).eq('table_id', 'Стол $cleanNum').neq('status', 'completed');
@@ -396,11 +388,9 @@ class _OrdersScreenState extends State<OrdersScreen>
 
   Future<void> _clearAllTableOrders() async {
     try {
-      // 1. Удаляем черновики
-      await Supabase.instance.client.from('orders_new').delete().eq('status', 'ordering');
-      // 2. Все активные заказы завершаем (сохраняются для аналитики!)
+      // 1. Все активные заказы и позиции столов переводим в completed (сохраняются для аналитики!)
       await Supabase.instance.client.from('orders_new').update({'status': 'completed'}).neq('status', 'completed');
-      // 3. Сбрасываем участников и сессии
+      // 2. Сбрасываем участников и сессии
       await Supabase.instance.client.from('table_participants').delete().not('table_id', 'is', null);
       await Supabase.instance.client.from('table_sessions').delete().not('table_id', 'is', null);
       
