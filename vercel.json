@@ -9,7 +9,7 @@
   ],
   "headers": [
     {
-      "source": "/(.*)\\.(js|wasm|css|png|jpg|jpeg|svg|webp|woff|woff2|ttf)",
+      "source": "/(.*)\\.(png|jpg|jpeg|svg|webp|woff|woff2|ttf|mp3|mp4)",
       "headers": [
         {
           "key": "Cache-Control",
@@ -18,20 +18,20 @@
       ]
     },
     {
-      "source": "/index.html",
+      "source": "/(.*)\\.(js|wasm|css|json)",
       "headers": [
         {
           "key": "Cache-Control",
-          "value": "public, max-age=0, must-revalidate"
+          "value": "no-cache, no-store, must-revalidate, max-age=0"
         }
       ]
     },
     {
-      "source": "/flutter_bootstrap.js",
+      "source": "/(.*)",
       "headers": [
         {
           "key": "Cache-Control",
-          "value": "public, max-age=0, must-revalidate"
+          "value": "no-cache, no-store, must-revalidate, max-age=0"
         }
       ]
     }

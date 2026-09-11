@@ -16,6 +16,24 @@
   <link rel="manifest" href="manifest.json">
 
   <script>
+    // Принудительно очищаем старый Service Worker и кэши для мгновенного обновления
+    try {
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function(registrations) {
+          for (var i = 0; i < registrations.length; i++) {
+            registrations[i].unregister();
+          }
+        });
+      }
+      if ('caches' in window) {
+        caches.keys().then(function(keys) {
+          for (var i = 0; i < keys.length; i++) {
+            caches.delete(keys[i]);
+          }
+        });
+      }
+    } catch(e) {}
+
     (function() {
       const isAdmin = new URLSearchParams(window.location.search).has('admin');
       if (isAdmin) {
