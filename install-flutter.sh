@@ -19,10 +19,13 @@ flutter config --no-analytics
 flutter config --enable-web
 
 # 5. Сборка
+echo "Cleaning old build cache..."
+flutter clean
+
 echo "Running pub get..."
 flutter pub get
 
-echo "Building Flutter Web..."
-flutter build web --release --base-href /
+echo "Building Flutter Web without aggressive PWA caching..."
+flutter build web --release --base-href / --pwa-strategy=none --no-tree-shake-icons
 
 echo "Build finished successfully!"
