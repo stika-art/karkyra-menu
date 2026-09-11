@@ -24,6 +24,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:js' as js;
 import 'guest/banner_carousel.dart';
 import 'waiter/waiter_app.dart' as waiter;
+import 'services/reviews_service.dart';
 
 Future<String?> scanQrCodeFromCameraGlobal() {
   final completer = Completer<String?>();
@@ -789,6 +790,11 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
             icon: const Icon(Icons.notifications_active_rounded, color: Color(0xFFD4A043)),
             tooltip: 'Вызвать официанта',
           ),
+        IconButton(
+          onPressed: () => showLeaveReviewDialog(context, tableId: widget.tableId),
+          icon: const Icon(Icons.star_outline_rounded, color: Color(0xFFD4A043)),
+          tooltip: 'Оставить отзыв',
+        ),
         Padding(
           padding: const EdgeInsets.only(right: 16),
           child: Center(
@@ -1835,6 +1841,192 @@ class _MenuItemDetailSheetState extends State<_MenuItemDetailSheet> {
   }
 }
 
+void showLeaveReviewDialog(BuildContext context, {String tableId = ''}) {
+  int selectedRating = 5;
+  String currentTableId = tableId;
+  if (currentTableId.isEmpty) {
+    try {
+      currentTableId = Provider.of<CartProvider>(context, listen: false).tableId;
+    } catch (_) {}
+  }
+  String initialName = '';
+  try {
+    initialName = Provider.of<CartProvider>(context, listen: false).userName ?? '';
+  } catch (_) {}
+
+  final nameCtrl = TextEditingController(text: initialName);
+  final commentCtrl = TextEditingController();
+  bool isSubmitting = false;
+
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (ctx) => StatefulBuilder(
+      builder: (context, setModalState) {
+        return Container(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+            top: 24,
+            left: 24,
+            right: 24,
+          ),
+          decoration: const BoxDecoration(
+            color: Color(0xFF1C1C1E),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                'ОЦЕНИТЕ ВАШЕ ПОСЕЩЕНИЕ',
+                style: GoogleFonts.outfit(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 2,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                currentTableId.isNotEmpty && currentTableId != '0'
+                    ? 'Bonum Cafe • Стол №$currentTableId'
+                    : 'Bonum Cafe',
+                style: GoogleFonts.outfit(color: const Color(0xFFD4A043), fontSize: 13),
+              ),
+              const SizedBox(height: 20),
+              // Звездочки
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(5, (i) {
+                  final starIndex = i + 1;
+                  final isSelected = starIndex <= selectedRating;
+                  return GestureDetector(
+                    onTap: () => setModalState(() => selectedRating = starIndex),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      child: Icon(
+                        isSelected ? Icons.star_rounded : Icons.star_border_rounded,
+                        color: isSelected ? const Color(0xFFD4A043) : Colors.white24,
+                        size: 40,
+                      ),
+                    ),
+                  );
+                }),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                selectedRating == 5
+                    ? 'Великолепно! 😍'
+                    : selectedRating == 4
+                        ? 'Хорошо, понравилось 👍'
+                        : selectedRating == 3
+                            ? 'Нормально, есть замечания 🤔'
+                            : 'Не понравилось 🙁',
+                style: GoogleFonts.outfit(
+                  color: selectedRating >= 4 ? const Color(0xFFD4A043) : Colors.orangeAccent,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 18),
+              // Поле имени
+              TextField(
+                controller: nameCtrl,
+                style: const TextStyle(color: Colors.white, fontSize: 14),
+                decoration: InputDecoration(
+                  hintText: 'Ваше имя',
+                  hintStyle: const TextStyle(color: Colors.white38, fontSize: 13),
+                  filled: true,
+                  fillColor: const Color(0xFF262626),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              // Текст комментария
+              TextField(
+                controller: commentCtrl,
+                maxLines: 3,
+                style: const TextStyle(color: Colors.white, fontSize: 14),
+                decoration: InputDecoration(
+                  hintText: 'Что вам понравилось или что нам улучшить?',
+                  hintStyle: const TextStyle(color: Colors.white38, fontSize: 13),
+                  filled: true,
+                  fillColor: const Color(0xFF262626),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              ElevatedButton(
+                onPressed: isSubmitting
+                    ? null
+                    : () async {
+                        setModalState(() => isSubmitting = true);
+                        final ok = await ReviewsService.addReview(
+                          tableId: currentTableId,
+                          guestName: nameCtrl.text.trim(),
+                          rating: selectedRating,
+                          comment: commentCtrl.text.trim(),
+                        );
+                        if (context.mounted) {
+                          Navigator.pop(ctx);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                ok
+                                    ? 'Спасибо за ваш отзыв! Мы ценим ваше мнение ❤️'
+                                    : 'Не удалось отправить отзыв. Попробуйте позже.',
+                                style: GoogleFonts.outfit(),
+                              ),
+                              backgroundColor: ok ? const Color(0xFFD4A043) : Colors.redAccent,
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                        }
+                      },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFD4A043),
+                  foregroundColor: Colors.black,
+                  minimumSize: const Size(double.infinity, 50),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+                child: isSubmitting
+                    ? const SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                      )
+                    : Text(
+                        'ОТПРАВИТЬ ОТЗЫВ',
+                        style: GoogleFonts.outfit(fontWeight: FontWeight.w900, fontSize: 14, letterSpacing: 1),
+                      ),
+              ),
+            ],
+          ),
+        );
+      },
+    ),
+  );
+}
+
 class SharedCartScreen extends StatefulWidget {
   final String tableNumber;
   const SharedCartScreen({super.key, required this.tableNumber});
@@ -2219,6 +2411,28 @@ class _SharedCartScreenState extends State<SharedCartScreen> {
                 style: GoogleFonts.outfit(fontWeight: FontWeight.bold, color: Colors.black, fontSize: 16),
               ),
             ),
+            if (isConfirmed) ...[
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: () => showLeaveReviewDialog(context, tableId: cart.tableId),
+                icon: const Icon(Icons.star_rounded, color: Color(0xFFD4A043), size: 20),
+                label: Text(
+                  'ОЦЕНИТЬ БЛЮДА И СЕРВИС',
+                  style: GoogleFonts.outfit(
+                    color: const Color(0xFF2C2518),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: Color(0xFFD4A043), width: 1.5),
+                  backgroundColor: const Color(0xFFFFF9EE),
+                  minimumSize: const Size(double.infinity, 48),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+              ),
+            ],
           ],
         ),
       ),

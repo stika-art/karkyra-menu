@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'orders_screen.dart';
 import 'analytics_screen.dart';
+import 'reviews_screen.dart';
 import 'menu_management_screen.dart';
 import 'ingredients_screen.dart';
 import 'tables_screen.dart';
@@ -24,6 +25,7 @@ class _AdminHomeState extends State<AdminHome> {
   final List<_NavItem> _navItems = [
     _NavItem(icon: Icons.receipt_long_rounded, label: 'Заказы'),
     _NavItem(icon: Icons.insights_rounded, label: 'Аналитика'),
+    _NavItem(icon: Icons.star_rounded, label: 'Отзывы'),
     _NavItem(icon: Icons.restaurant_menu_rounded, label: 'Меню'),
     _NavItem(icon: Icons.eco_rounded, label: 'Ингредиенты'),
     _NavItem(icon: Icons.table_restaurant_rounded, label: 'Столы'),
@@ -37,6 +39,7 @@ class _AdminHomeState extends State<AdminHome> {
   final List<Widget> _screens = [
     const OrdersScreen(),
     const AnalyticsScreen(),
+    const ReviewsScreen(),
     const MenuManagementScreen(),
     const IngredientsScreen(),
     const TablesScreen(),
