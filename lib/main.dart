@@ -633,7 +633,7 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
       backgroundColor: Colors.black,
       elevation: 0,
       centerTitle: true,
-      toolbarHeight: 74,
+      toolbarHeight: 80,
       titleSpacing: 0,
       leadingWidth: 52,
       leading: Padding(
