@@ -25,6 +25,7 @@ import 'dart:js' as js;
 import 'guest/banner_carousel.dart';
 import 'waiter/waiter_app.dart' as waiter;
 import 'services/reviews_service.dart';
+import 'guest/guest_reviews_sheet.dart';
 
 Future<String?> scanQrCodeFromCameraGlobal() {
   final completer = Completer<String?>();
@@ -724,7 +725,11 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
             child: Tooltip(
               message: 'Оценить блюда и сервис ⭐',
               child: GestureDetector(
-                onTap: () => showLeaveReviewDialog(context, tableId: widget.tableId),
+                onTap: () => showGuestReviewsSheet(
+                  context,
+                  tableId: widget.tableId,
+                  onLeaveReview: (ctx, {tableId = ''}) => showLeaveReviewDialog(ctx, tableId: tableId),
+                ),
                 child: Container(
                   width: 38,
                   height: 38,
