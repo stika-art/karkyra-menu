@@ -107,11 +107,11 @@ class _AdminHomeState extends State<AdminHome> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('BONUM', style: GoogleFonts.outfit(
+                    Text('ALTYN KAZYK', style: GoogleFonts.outfit(
                       color: const Color(0xFFD4A043),
-                      fontSize: 18,
+                      fontSize: 16,
                       fontWeight: FontWeight.w900,
-                      letterSpacing: 4,
+                      letterSpacing: 2.5,
                     )),
                     Text('Администратор', style: GoogleFonts.outfit(
                       color: Colors.white38,

@@ -109,7 +109,7 @@ class _AdminAppState extends State<AdminApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Bonum — Админ',
+      title: 'Altyn Kazyk — Админ',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: const ColorScheme.dark(
@@ -144,12 +144,12 @@ class _AdminAppState extends State<AdminApp> {
                 ),
                 const SizedBox(height: 24),
                 Text(
-                  'BONUM',
+                  'ALTYN KAZYK',
                   style: GoogleFonts.outfit(
                     color: Colors.white,
-                    fontSize: 28,
+                    fontSize: 24,
                     fontWeight: FontWeight.w900,
-                    letterSpacing: 6,
+                    letterSpacing: 4,
                   ),
                 ),
                 Text(

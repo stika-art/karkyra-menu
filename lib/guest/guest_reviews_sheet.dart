@@ -125,7 +125,7 @@ class _GuestReviewsSheetContentState extends State<GuestReviewsSheetContent> {
                         ),
                       ),
                       Text(
-                        'Bonum Cafe • Рейтинг и впечатления',
+                        'Altyn Kazyk • Рейтинг и впечатления',
                         style: GoogleFonts.outfit(
                           color: const Color(0xFFD4A043),
                           fontSize: 12,

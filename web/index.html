@@ -42,9 +42,9 @@
         meta.content = '#141414';
         document.head.appendChild(meta);
 
-        document.title = 'Bonum — Админ';
+        document.title = 'Altyn Kazyk — Админ';
       } else {
-        document.title = 'Bonum — Cafe';
+        document.title = 'Altyn Kazyk — Ресторан';
       }
     })();
   </script>
@@ -52,7 +52,7 @@
   <style>
     body { background-color: #141414; margin: 0; padding: 0; overflow: hidden; }
     
-    #bonum-splash {
+    #app-splash {
       position: fixed;
       top: 0;
       left: 0;
@@ -339,16 +339,16 @@
   </script>
 </head>
 <body>
-  <div id="bonum-splash">
-    <div class="splash-logo">BONUM</div>
-    <div class="splash-sub">CAFE</div>
+  <div id="app-splash">
+    <div class="splash-logo">ALTYN KAZYK</div>
+    <div class="splash-sub">RESTAURANT</div>
     <div class="splash-bar"><div class="splash-progress"></div></div>
   </div>
 
   <script>
     (function() {
       function removeSplash() {
-        var splash = document.getElementById('bonum-splash');
+        var splash = document.getElementById('app-splash');
         if (splash && splash.style.opacity !== '0') {
           splash.style.opacity = '0';
           setTimeout(function() {

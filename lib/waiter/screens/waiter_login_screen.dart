@@ -162,7 +162,7 @@ class _WaiterLoginScreenState extends State<WaiterLoginScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Bonum',
+                        'Altyn Kazyk',
                         style: GoogleFonts.outfit(
                           color: Colors.white,
                           fontSize: 26,

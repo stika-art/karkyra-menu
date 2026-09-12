@@ -180,7 +180,7 @@ class MenuApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Bonum — Ресторан',
+      title: 'Altyn Kazyk — Ресторан',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       scrollBehavior: AppScrollBehavior(),
@@ -666,12 +666,12 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text(
-                'BONUM',
+                'ALTYN KAZYK',
                 style: GoogleFonts.forum(
                   color: Colors.white,
-                  fontSize: 22,
+                  fontSize: 20,
                   fontWeight: FontWeight.w400,
-                  letterSpacing: 4.0,
+                  letterSpacing: 3.0,
                 ),
               ),
               const SizedBox(width: 3),
@@ -1963,10 +1963,10 @@ void showLeaveReviewDialog(BuildContext context, {String tableId = ''}) {
                 builder: (context) {
                   final isDelivery = currentTableId.toLowerCase().contains('delivery') || currentTableId == 'Доставка';
                   final subtitleText = isDelivery
-                      ? 'Bonum Cafe • Доставка'
+                      ? 'Altyn Kazyk • Доставка'
                       : (currentTableId.isNotEmpty && currentTableId != '0'
-                          ? 'Bonum Cafe • Стол №$currentTableId'
-                          : 'Bonum Cafe');
+                          ? 'Altyn Kazyk • Стол №$currentTableId'
+                          : 'Altyn Kazyk');
                   return Text(
                     subtitleText,
                     style: GoogleFonts.outfit(color: const Color(0xFFD4A043), fontSize: 13),

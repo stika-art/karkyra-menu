@@ -1,11 +1,11 @@
 {
-    "name": "Bonum — Ресторан",
-    "short_name": "Bonum",
+    "name": "Altyn Kazyk — Ресторан",
+    "short_name": "Altyn Kazyk",
     "start_url": ".",
     "display": "browser",
     "background_color": "#141414",
     "theme_color": "#141414",
-    "description": "Ресто-Чайхана Bonum",
+    "description": "Ресторан Altyn Kazyk",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
