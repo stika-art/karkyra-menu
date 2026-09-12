@@ -3166,29 +3166,34 @@ class _TableBookingScreenState extends State<TableBookingScreen> {
                       fit: BoxFit.scaleDown,
                       child: Container(
                         width: 360,
-                        height: 600,
                         decoration: BoxDecoration(
                           color: const Color(0xFF141414),
                           borderRadius: BorderRadius.circular(24),
                           boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.25), blurRadius: 40, offset: const Offset(0, 20))],
                         ),
                         child: _loading 
-                          ? const Center(child: CircularProgressIndicator(color: Color(0xFFD4A043)))
+                          ? const SizedBox(
+                              width: 360,
+                              height: 360,
+                              child: Center(child: CircularProgressIndicator(color: Color(0xFFD4A043))),
+                            )
                           : _selectedFloorId == null
-                            ? Center(child: Text('Схема залов не настроена', style: GoogleFonts.outfit(color: Colors.white38)))
+                            ? SizedBox(
+                                width: 360,
+                                height: 360,
+                                child: Center(child: Text('Схема залов не настроена', style: GoogleFonts.outfit(color: Colors.white38))),
+                              )
                             : ClipRRect(
                                 borderRadius: BorderRadius.circular(24),
                                 child: InteractiveViewer(
                                   minScale: 0.8,
                                   maxScale: 3.5,
-                                  child: SingleChildScrollView(
-                                    child: Column(
-                                      children: [
-                                        _buildHallScheme(),
-                                        _buildExtraTablesList(),
-                                        const SizedBox(height: 40), 
-                                      ],
-                                    ),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      _buildHallScheme(),
+                                      _buildExtraTablesList(),
+                                    ],
                                   ),
                                 ),
                               ),
@@ -3229,30 +3234,28 @@ class _TableBookingScreenState extends State<TableBookingScreen> {
     final floorTables = _tables.where((t) => t['floor_id'] == _selectedFloorId).toList();
     final placedTables = floorTables.where((t) => (t['pos_x'] as num) > 0 || (t['pos_y'] as num) > 0).toList();
     final planUrl = floor['plan_url'];
+    final bool hasPlan = planUrl != null && planUrl.toString().isNotEmpty;
 
-    return SizedBox(
-      width: 360,
-      height: 600,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Positioned.fill(
-            child: Container(
-              color: const Color(0xFF141414),
-              child: planUrl != null && planUrl.toString().isNotEmpty
-                  ? Image.network(
-                      planUrl,
-                      fit: BoxFit.contain,
-                      alignment: Alignment.topCenter,
-                      loadingBuilder: (ctx, child, progress) {
-                        if (progress == null) return child;
-                        return const Center(child: CircularProgressIndicator(color: Color(0xFFD4A043)));
-                      },
-                      errorBuilder: (_, __, ___) => _buildGridFallback(),
-                    )
-                  : _buildGridFallback(),
-            ),
-          ),
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        if (hasPlan)
+          Image.network(
+            planUrl,
+            width: 360,
+            fit: BoxFit.fitWidth,
+            loadingBuilder: (ctx, child, progress) {
+              if (progress == null) return child;
+              return const SizedBox(
+                width: 360,
+                height: 360,
+                child: Center(child: CircularProgressIndicator(color: Color(0xFFD4A043))),
+              );
+            },
+            errorBuilder: (_, __, ___) => _buildGridFallback(),
+          )
+        else
+          _buildGridFallback(),
           ...placedTables.map((table) {
             final double w = (table['width'] ?? 80).toDouble();
             final double h = (table['height'] ?? 80).toDouble();
@@ -3335,8 +3338,7 @@ class _TableBookingScreenState extends State<TableBookingScreen> {
             );
           }),
         ],
-      ),
-    );
+      );
   }
 
   Widget _buildExtraTablesList() {
@@ -3402,8 +3404,8 @@ class _TableBookingScreenState extends State<TableBookingScreen> {
 
   Widget _buildGridFallback() {
     return Container(
-      width: 1000, height: 1000,
-      color: Colors.grey.shade50,
+      width: 360, height: 360,
+      color: const Color(0xFF141414),
       child: CustomPaint(painter: _GridPainter()),
     );
   }

@@ -502,7 +502,6 @@ class _TablesScreenState extends State<TablesScreen> {
         Center(
           child: Container(
             width: 360,
-            height: 600,
             decoration: BoxDecoration(
               color: const Color(0xFF1E1E1E),
               borderRadius: BorderRadius.circular(20),
@@ -511,40 +510,52 @@ class _TablesScreenState extends State<TablesScreen> {
             child: ClipRRect(
               borderRadius: BorderRadius.circular(20),
               child: currFloor == null 
-                  ? Center(child: Text('Создайте или выберите зал', style: GoogleFonts.outfit(color: Colors.white38)))
+                  ? SizedBox(
+                      width: 360,
+                      height: 360,
+                      child: Center(child: Text('Создайте или выберите зал', style: GoogleFonts.outfit(color: Colors.white38))),
+                    )
                   : _uploadingPlan
-                      ? const Center(child: CircularProgressIndicator(color: Color(0xFFD4A043)))
+                      ? const SizedBox(
+                          width: 360,
+                          height: 360,
+                          child: Center(child: CircularProgressIndicator(color: Color(0xFFD4A043))),
+                        )
                       : _buildHallSchemeUI(currFloor, currTables),
+            ),
           ),
         ),
-      ),
-      const SizedBox(height: 100),
-    ],
-  ),
-);
+        const SizedBox(height: 100),
+      ],
+    ),
+  );
 }
 
   Widget _buildHallSchemeUI(Map<String, dynamic> currFloor, List<Map<String, dynamic>> currTables) {
+    final planUrl = currFloor['plan_url'];
+    final bool hasPlan = planUrl != null && planUrl.toString().isNotEmpty;
+
     return Stack(
+      clipBehavior: Clip.none,
       children: [
-        // 1. ФОН — Positioned.fill + BoxFit.contain для сохранения пропорций
-        Positioned.fill(
-          child: Container(
-            color: const Color(0xFF141414),
-            child: currFloor['plan_url'] != null && currFloor['plan_url'].toString().isNotEmpty
-              ? Image.network(
-                  currFloor['plan_url'],
-                  fit: BoxFit.contain,
-                  alignment: Alignment.topCenter,
-                  loadingBuilder: (ctx, child, progress) {
-                    if (progress == null) return child;
-                    return const Center(child: CircularProgressIndicator(color: Color(0xFFD4A043)));
-                  },
-                  errorBuilder: (_, __, ___) => _buildFallbackGrid(),
-                )
-              : _buildFallbackGrid(),
-          ),
-        ),
+        // 1. ФОН — картинка схемы или сетка-заглушка
+        if (hasPlan)
+          Image.network(
+            planUrl,
+            width: 360,
+            fit: BoxFit.fitWidth,
+            loadingBuilder: (ctx, child, progress) {
+              if (progress == null) return child;
+              return const SizedBox(
+                width: 360,
+                height: 360,
+                child: Center(child: CircularProgressIndicator(color: Color(0xFFD4A043))),
+              );
+            },
+            errorBuilder: (_, __, ___) => _buildFallbackGrid(),
+          )
+        else
+          _buildFallbackGrid(),
 
         // 2. СТОЛЫ
         ...currTables.map((mapTable) => _buildTableNode(mapTable)),
@@ -640,7 +651,7 @@ class _TablesScreenState extends State<TablesScreen> {
 
   Widget _buildFallbackGrid() {
     return Container(
-      width: 3000, height: 3000, // Громадный пустой холст по умолчанию
+      width: 360, height: 360,
       decoration: const BoxDecoration(
         color: Color(0xFF141414),
       ),
@@ -648,22 +659,20 @@ class _TablesScreenState extends State<TablesScreen> {
         children: [
           CustomPaint(
             painter: _GridPainter(),
-            size: const Size(3000, 3000),
+            size: const Size(360, 360),
           ),
           Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.add_photo_alternate_rounded, size: 64, color: Colors.white12),
-                const SizedBox(height: 16),
-                Text('Схема не загружена', style: GoogleFonts.outfit(color: Colors.white24, fontSize: 22, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                Text('Рекомендуемый размер: 360 x 600 px', style: GoogleFonts.outfit(color: Colors.white24, fontSize: 14)),
-                const SizedBox(height: 16),
+                const Icon(Icons.add_photo_alternate_rounded, size: 48, color: Colors.white12),
+                const SizedBox(height: 12),
+                Text('Схема не загружена', style: GoogleFonts.outfit(color: Colors.white24, fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 6),
                 Text('Загрузите фото через меню ⋮', style: GoogleFonts.outfit(color: const Color(0xFFD4A043).withOpacity(0.5), fontSize: 13)),
               ],
             ),
-          )
+          ),
         ],
       ),
     );
