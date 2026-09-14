@@ -64,8 +64,11 @@ class _WaiterCallsScreenState extends State<WaiterCallsScreen> {
     if (mounted && success) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(status == 'completed' ? 'Вызов завершен ✅' : 'Вызов принят 👍', style: GoogleFonts.outfit()),
-          backgroundColor: const Color(0xFFD4A043),
+          content: Text(
+            status == 'completed' ? 'Вызов завершен ✅' : 'Вызов принят 👍 Идём к столу!',
+            style: GoogleFonts.outfit(),
+          ),
+          backgroundColor: status == 'completed' ? const Color(0xFFD4A043) : Colors.green,
         ),
       );
       _loadCalls(silent: true);
@@ -155,20 +158,30 @@ class _WaiterCallsScreenState extends State<WaiterCallsScreen> {
                               tableLabel = table['label'];
                             }
                             final callType = call['call_type'] ?? 'Вызов официанта';
+                            final status = call['status'] ?? 'pending';
+                            final isAccepted = status == 'accepted';
 
                             return Container(
                               decoration: BoxDecoration(
                                 color: const Color(0xFF1C1C1E),
                                 borderRadius: BorderRadius.circular(20),
-                                border: Border.all(color: Colors.redAccent.withOpacity(0.5), width: 1.5),
+                                border: Border.all(
+                                  color: isAccepted 
+                                      ? Colors.greenAccent.withOpacity(0.6) 
+                                      : Colors.redAccent.withOpacity(0.5), 
+                                  width: 1.5,
+                                ),
                               ),
                               padding: const EdgeInsets.all(16),
                               child: Row(
                                 children: [
                                   CircleAvatar(
                                     radius: 24,
-                                    backgroundColor: Colors.redAccent.withOpacity(0.2),
-                                    child: const Icon(Icons.notifications_active, color: Colors.redAccent),
+                                    backgroundColor: (isAccepted ? Colors.green : Colors.redAccent).withOpacity(0.2),
+                                    child: Icon(
+                                      isAccepted ? Icons.directions_walk_rounded : Icons.notifications_active, 
+                                      color: isAccepted ? Colors.greenAccent : Colors.redAccent,
+                                    ),
                                   ),
                                   const SizedBox(width: 16),
                                   Expanded(
@@ -181,20 +194,42 @@ class _WaiterCallsScreenState extends State<WaiterCallsScreen> {
                                         ),
                                         const SizedBox(height: 2),
                                         Text(
-                                          callType,
-                                          style: GoogleFonts.outfit(color: Colors.white70, fontSize: 14),
+                                          isAccepted ? '🚶‍♂️ Вы в пути к столу...' : callType,
+                                          style: GoogleFonts.outfit(
+                                            color: isAccepted ? Colors.greenAccent : Colors.white70, 
+                                            fontSize: 14,
+                                            fontWeight: isAccepted ? FontWeight.w600 : FontWeight.normal,
+                                          ),
                                         ),
                                       ],
                                     ),
                                   ),
+                                  if (!isAccepted) ...[
+                                    ElevatedButton.icon(
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFF4CAF50),
+                                        foregroundColor: Colors.white,
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                      ),
+                                      onPressed: () => _resolveCall(callId, 'accepted'),
+                                      icon: const Icon(Icons.directions_walk_rounded, size: 18),
+                                      label: Text('Иду!', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 14)),
+                                    ),
+                                    const SizedBox(width: 8),
+                                  ],
                                   ElevatedButton(
                                     style: ElevatedButton.styleFrom(
-                                      backgroundColor: const Color(0xFFD4A043),
-                                      foregroundColor: Colors.black,
+                                      backgroundColor: isAccepted ? const Color(0xFFD4A043) : Colors.white12,
+                                      foregroundColor: isAccepted ? Colors.black : Colors.white70,
                                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                                     ),
                                     onPressed: () => _resolveCall(callId, 'completed'),
-                                    child: Text('Обслужен', style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
+                                    child: Text(
+                                      'Обслужен', 
+                                      style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 13),
+                                    ),
                                   ),
                                 ],
                               ),

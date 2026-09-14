@@ -214,6 +214,7 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
   List<Map<String, String>> _banners = MenuDataService.banners;
   bool _isMenuLoading = !MenuDataService.isLoaded;
   RealtimeChannel? _waiterCallChannel;
+  Timer? _waiterPollingTimer;
   bool _isWaiterComing = false;
   bool _isAskingName = false;
   late bool _isDeliveryActive;
@@ -224,6 +225,7 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
     _isDeliveryActive = widget.isDeliveryMode;
     _initSession();
     _loadMenuData();
+    _initWaiterCallListener();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
@@ -233,6 +235,131 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
         };
       }
     });
+  }
+
+  void _initWaiterCallListener() {
+    if (widget.isDeliveryMode) return;
+
+    final cleanTableId = widget.tableId.replaceAll(RegExp(r'[^0-9]'), '');
+
+    _waiterCallChannel?.unsubscribe();
+    _waiterCallChannel = Supabase.instance.client
+        .channel('waiter_calls_table_${widget.tableId}')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'waiter_calls',
+          callback: (payload) {
+            final record = payload.newRecord;
+            if (record.isEmpty) return;
+            final recTable = record['table_id']?.toString() ?? '';
+            final recClean = recTable.replaceAll(RegExp(r'[^0-9]'), '');
+
+            final bool matchesTable = recTable == widget.tableId ||
+                (cleanTableId.isNotEmpty && (recClean == cleanTableId || recTable == 'table_$cleanTableId'));
+
+            if (matchesTable) {
+              final status = record['status']?.toString();
+              debugPrint('REALTIME WAITER CALL for ${widget.tableId}: status=$status');
+              if (status == 'accepted') {
+                if (mounted && !_isWaiterComing) {
+                  setState(() => _isWaiterComing = true);
+                  _triggerWaiterNotification();
+                }
+              } else if (status == 'completed') {
+                if (mounted && _isWaiterComing) {
+                  setState(() => _isWaiterComing = false);
+                }
+              }
+            }
+          },
+        )
+        .subscribe();
+
+    _checkActiveWaiterCall();
+  }
+
+  void _startWaiterCallPolling() {
+    _waiterPollingTimer?.cancel();
+    int attempts = 0;
+    _waiterPollingTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
+      attempts++;
+      if (attempts > 40 || !mounted) {
+        timer.cancel();
+        return;
+      }
+      await _checkActiveWaiterCall();
+      if (_isWaiterComing) {
+        timer.cancel();
+      }
+    });
+  }
+
+  Future<void> _checkActiveWaiterCall() async {
+    if (widget.isDeliveryMode) return;
+    try {
+      final cleanTableId = widget.tableId.replaceAll(RegExp(r'[^0-9]'), '');
+      final fifteenMinutesAgo = DateTime.now().subtract(const Duration(minutes: 15)).toIso8601String();
+
+      final res = await Supabase.instance.client
+          .from('waiter_calls')
+          .select()
+          .gte('created_at', fifteenMinutesAgo)
+          .order('created_at', ascending: false)
+          .limit(10);
+
+      final matching = (res as List).firstWhere(
+        (call) {
+          final t = call['table_id']?.toString() ?? '';
+          final c = t.replaceAll(RegExp(r'[^0-9]'), '');
+          return t == widget.tableId || (cleanTableId.isNotEmpty && c == cleanTableId);
+        },
+        orElse: () => null,
+      );
+
+      if (matching != null && mounted) {
+        final status = matching['status']?.toString();
+        if (status == 'accepted') {
+          if (!_isWaiterComing) {
+            setState(() => _isWaiterComing = true);
+            _triggerWaiterNotification();
+          }
+        } else if (status == 'completed') {
+          if (_isWaiterComing) {
+            setState(() => _isWaiterComing = false);
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Check active waiter call error: $e');
+    }
+  }
+
+  void _triggerWaiterNotification() {
+    SystemSound.play(SystemSoundType.click);
+    HapticFeedback.heavyImpact();
+    if (kIsWeb) {
+      try {
+        js.context.callMethod('eval', [
+          """
+          try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+            osc.frequency.setValueAtTime(880, ctx.currentTime + 0.15);
+            gain.gain.setValueAtTime(0.3, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.5);
+          } catch(e) {}
+          """
+        ]);
+      } catch (_) {}
+    }
   }
 
   void _initSession() async {
@@ -309,6 +436,7 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
   @override
   void dispose() {
     _waiterCallChannel?.unsubscribe();
+    _waiterPollingTimer?.cancel();
     _categoryScrollController.dispose();
     super.dispose();
   }
@@ -569,8 +697,8 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
   Widget _buildWaiterPanel() {
     return Positioned(
       top: 100,
-      left: 20,
-      right: 20,
+      left: 16,
+      right: 16,
       child: TweenAnimationBuilder<double>(
         tween: Tween(begin: 0.0, end: 1.0),
         duration: const Duration(milliseconds: 500),
@@ -581,41 +709,54 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
             child: Opacity(
               opacity: value.clamp(0.0, 1.0),
               child: Container(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                 decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(24),
+                  color: const Color(0xFF1B1C22),
+                  borderRadius: BorderRadius.circular(20),
                   boxShadow: [
-                    BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 20, offset: const Offset(0, 10))
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.5),
+                      blurRadius: 25,
+                      offset: const Offset(0, 10),
+                    ),
+                    BoxShadow(
+                      color: const Color(0xFF4CAF50).withOpacity(0.25),
+                      blurRadius: 15,
+                      spreadRadius: 1,
+                    ),
                   ],
-                  border: Border.all(color: const Color(0xFFD4A043).withOpacity(0.3), width: 1),
+                  border: Border.all(color: const Color(0xFF4CAF50), width: 1.5),
                 ),
                 child: Row(
                   children: [
                     Container(
                       padding: const EdgeInsets.all(10),
-                      decoration: const BoxDecoration(color: Color(0xFFE8F5E9), shape: BoxShape.circle),
-                      child: const Icon(Icons.check_circle, color: Colors.green, size: 24),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF4CAF50).withOpacity(0.2),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.directions_walk_rounded, color: Color(0xFF4CAF50), size: 28),
                     ),
-                    const SizedBox(width: 16),
+                    const SizedBox(width: 14),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
-                            'Официант в пути!',
-                            style: GoogleFonts.outfit(fontWeight: FontWeight.w900, fontSize: 18, color: Colors.black),
+                            'Официант уже идёт к вам! 🚶‍♂️',
+                            style: GoogleFonts.outfit(fontWeight: FontWeight.w900, fontSize: 16, color: Colors.white),
                           ),
+                          const SizedBox(height: 2),
                           Text(
-                            'Пожалуйста, ожидайте, он скоро будет у вас.',
-                            style: GoogleFonts.outfit(color: Colors.black87, fontSize: 13),
+                            'Вызов принят. Официант скоро будет у вашего столика.',
+                            style: GoogleFonts.outfit(color: Colors.white70, fontSize: 12),
                           ),
                         ],
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.close, color: Colors.grey, size: 20),
+                      icon: const Icon(Icons.close_rounded, color: Colors.white38, size: 20),
                       onPressed: () => setState(() => _isWaiterComing = false),
                     ),
                   ],
@@ -777,37 +918,9 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
 
                       final callId = res['id'];
 
-                      // 2. Подписываемся на ответ официанта
-                      _waiterCallChannel?.unsubscribe();
-                      _waiterCallChannel = Supabase.instance.client
-                          .channel('waiter_response_$callId')
-                          .onPostgresChanges(
-                            event: PostgresChangeEvent.update,
-                            schema: 'public',
-                            table: 'waiter_calls',
-                            filter: PostgresChangeFilter(
-                              type: PostgresChangeFilterType.eq,
-                              column: 'id',
-                              value: callId,
-                            ),
-                            callback: (payload) {
-                              final newStatus = payload.newRecord['status'];
-                              if (newStatus == 'accepted' && mounted) {
-                                setState(() => _isWaiterComing = true);
-                                
-                                // Звук (через системный клик + JS beep для веба)
-                                SystemSound.play(SystemSoundType.click);
-                                if (kIsWeb) {
-                                  try {
-                                    js.context.callMethod('eval', ["new Audio('https://assets.mixkit.io/active_storage/sfx/2568/2568-preview.mp3').play()"]);
-                                  } catch (_) {}
-                                }
-                                
-                                _waiterCallChannel?.unsubscribe();
-                              }
-                            },
-                          );
-                      _waiterCallChannel?.subscribe();
+                      // 2. Убеждаемся что Realtime активен и запускаем опрос
+                      _initWaiterCallListener();
+                      _startWaiterCallPolling();
 
                       if (SettingsService.telegramNotify) {
                         final waiterChatId = await TelegramService.getWaiterChatId(widget.tableId);
@@ -826,9 +939,21 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content: Text('Официант вызван к столу №${widget.tableId}'),
+                            content: Row(
+                              children: [
+                                const Icon(Icons.notifications_active_rounded, color: Colors.black, size: 20),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Официант вызван к столу №${widget.tableId}! Ожидайте ответа.',
+                                    style: GoogleFonts.outfit(fontWeight: FontWeight.bold, color: Colors.black),
+                                  ),
+                                ),
+                              ],
+                            ),
                             backgroundColor: const Color(0xFFD4A043),
                             behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                           ),
                         );
                       }
