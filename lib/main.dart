@@ -26,6 +26,7 @@ import 'guest/banner_carousel.dart';
 import 'waiter/waiter_app.dart' as waiter;
 import 'services/reviews_service.dart';
 import 'guest/guest_reviews_sheet.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 Future<String?> scanQrCodeFromCameraGlobal() {
   final completer = Completer<String?>();
@@ -148,10 +149,20 @@ void main() async {
         home: _AcceptOrderPage(tableId: tableId),
       ));
     } else if (isWaiterRoute) {
-      runApp(const MaterialApp(
-        debugShowCheckedModeBanner: false,
-        home: waiter.WaiterApp(),
-      ));
+      if (params.containsKey('legacy') || params['legacy'] == 'true') {
+        runApp(const MaterialApp(
+          debugShowCheckedModeBanner: false,
+          home: waiter.WaiterApp(),
+        ));
+      } else {
+        runApp(MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: ThemeData.dark().copyWith(
+            scaffoldBackgroundColor: const Color(0xFF121212),
+          ),
+          home: const _WaitersMigratedPage(),
+        ));
+      }
     } else if (fullUrl.contains('admin') || params.containsKey('admin') || path.contains('admin') || fragment.contains('admin')) {
       runApp(const admin.AdminApp());
     } else {
@@ -924,9 +935,12 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
 
                       if (SettingsService.telegramNotify) {
                         final waiterChatId = await TelegramService.getWaiterChatId(widget.tableId);
-                        // В общий чат — без кнопки
-                        await TelegramService.notifyWaiterCall(tableId: widget.tableId);
-                        // Персонально официанту — с кнопкой «Иду!»
+                        // В общий чат — с кнопкой «Я подойду!» для дежурного персонала
+                        await TelegramService.notifyWaiterCall(
+                          tableId: widget.tableId,
+                          callId: callId.toString(),
+                        );
+                        // Персонально закрепленному официанту в личку
                         if (waiterChatId != null && waiterChatId.isNotEmpty) {
                           await TelegramService.notifyWaiterCall(
                             tableId: widget.tableId,
@@ -4447,6 +4461,171 @@ class _AcceptOrderPageState extends State<_AcceptOrderPage> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Экран уведомления официантов о переходе в Telegram-бот
+class _WaitersMigratedPage extends StatelessWidget {
+  const _WaitersMigratedPage();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF121212),
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 480),
+            padding: const EdgeInsets.all(32),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E1E1E),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: const Color(0xFFD4A043).withOpacity(0.3)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.5),
+                  blurRadius: 24,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF2AABEE).withOpacity(0.15),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: const Color(0xFF2AABEE).withOpacity(0.4), width: 2),
+                  ),
+                  child: const Icon(Icons.send_rounded, color: Color(0xFF2AABEE), size: 40),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  'Altyn Kazyk • Персонал',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.outfit(
+                    color: const Color(0xFFD4A043),
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 2.0,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Официанты работают в Telegram!',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.outfit(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.03),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.white.withOpacity(0.06)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _featureRow(Icons.table_restaurant_rounded, 'Выбор столов на смену прямо в боте'),
+                      const SizedBox(height: 10),
+                      _featureRow(Icons.notifications_active_rounded, 'Мгновенные вызовы гостей «Иду к столу!»'),
+                      const SizedBox(height: 10),
+                      _featureRow(Icons.restaurant_menu_rounded, 'Контроль готовки, подача и закрытие столов'),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF2AABEE),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      elevation: 4,
+                    ),
+                    onPressed: () async {
+                      final url = Uri.parse('https://t.me/karkyra_ordersbot');
+                      if (await canLaunchUrl(url)) {
+                        await launchUrl(url, mode: LaunchMode.externalApplication);
+                      }
+                    },
+                    icon: const Icon(Icons.send_rounded, size: 20),
+                    label: Text(
+                      'Открыть @karkyra_ordersbot',
+                      style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white70,
+                      side: const BorderSide(color: Colors.white24),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    ),
+                    onPressed: () {
+                      Navigator.pushReplacement(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const MenuHomeScreen(isDeliveryMode: false, tableId: ''),
+                        ),
+                      );
+                    },
+                    child: Text('Перейти в меню ресторана', style: GoogleFonts.outfit(fontSize: 14)),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextButton(
+                  onPressed: () {
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(builder: (_) => const waiter.WaiterApp()),
+                    );
+                  },
+                  child: Text(
+                    'Открыть резервную веб-панель официанта',
+                    style: GoogleFonts.outfit(
+                      color: Colors.white30,
+                      fontSize: 12,
+                      decoration: TextDecoration.underline,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _featureRow(IconData icon, String text) {
+    return Row(
+      children: [
+        Icon(icon, color: const Color(0xFFD4A043), size: 18),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            text,
+            style: GoogleFonts.outfit(color: Colors.white70, fontSize: 13, height: 1.3),
+          ),
+        ),
+      ],
     );
   }
 }

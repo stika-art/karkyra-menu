@@ -58,6 +58,35 @@ class TelegramService {
     }
   }
 
+  /// Отправить сообщение с кастомной inline-клавиатурой (кнопки с callback_data или url)
+  static Future<void> sendMessageWithInlineKeyboard({
+    required String text,
+    required List<List<Map<String, dynamic>>> inlineKeyboard,
+    String? customChatId,
+  }) async {
+    final token = SettingsService.telegramToken;
+    final chatId = customChatId ?? SettingsService.telegramChatId;
+
+    if (token.isEmpty || chatId.isEmpty) return;
+
+    try {
+      final replyMarkup = jsonEncode({'inline_keyboard': inlineKeyboard});
+
+      await http.post(
+        Uri.parse('https://api.telegram.org/bot$token/sendMessage'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'chat_id': chatId,
+          'text': text,
+          'parse_mode': 'HTML',
+          'reply_markup': jsonDecode(replyMarkup),
+        }),
+      );
+    } catch (e) {
+      print('Telegram inline keyboard message error: $e');
+    }
+  }
+
   /// Отправить сообщение с inline-кнопкой (URL)
   static Future<void> sendMessageWithButton({
     required String text,
@@ -81,12 +110,13 @@ class TelegramService {
 
       await http.post(
         Uri.parse('https://api.telegram.org/bot$token/sendMessage'),
-        body: {
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
           'chat_id': chatId,
           'text': text,
           'parse_mode': 'HTML',
-          'reply_markup': replyMarkup,
-        },
+          'reply_markup': jsonDecode(replyMarkup),
+        }),
       );
     } catch (e) {
       print('Telegram button message error: $e');
@@ -111,13 +141,28 @@ $itemLines
 ''';
     
     if (withAcceptButton) {
-      final baseUrl = Uri.base.origin;
-      final acceptUrl = '$baseUrl/?accept_order=$tableId';
+      final inlineKeyboard = [
+        [
+          {
+            'text': '👨‍🍳 Готовится',
+            'callback_data': 'order_status:$tableId:processing',
+          },
+          {
+            'text': '🍽 Подано',
+            'callback_data': 'order_status:$tableId:served',
+          },
+        ],
+        [
+          {
+            'text': '🧾 Расчёт / Освободить',
+            'callback_data': 'table_clear:$tableId',
+          }
+        ]
+      ];
 
-      await sendMessageWithButton(
+      await sendMessageWithInlineKeyboard(
         text: message,
-        buttonText: '✅ Принять заказ стола №$tableId',
-        buttonUrl: acceptUrl,
+        inlineKeyboard: inlineKeyboard,
         customChatId: customChatId,
       );
     } else {
@@ -145,7 +190,7 @@ $itemLines
     await sendMessage(message);
   }
 
-  /// Уведомление о вызове официанта — с кнопкой «Иду!» в Telegram
+  /// Уведомление о вызове официанта — с интерактивными кнопками «Иду!» и «Обслужен» в Telegram
   static Future<void> notifyWaiterCall({
     required String tableId,
     String? callId,
@@ -158,20 +203,27 @@ $itemLines
 ⏰ Время: <b>${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}</b>
 ''';
 
-    // Если есть callId и chatId — отправляем с кнопкой «Иду!»
-    if (callId != null && customChatId != null && customChatId.isNotEmpty) {
-      // Формируем URL для принятия вызова прямо из Telegram
-      final baseUrl = Uri.base.origin; // Текущий домен приложения
-      final acceptUrl = '$baseUrl/?accept_call=$callId';
+    if (callId != null && callId.isNotEmpty) {
+      final isPersonal = customChatId != null && customChatId.isNotEmpty;
+      final inlineKeyboard = [
+        [
+          {
+            'text': isPersonal ? '🏃‍♂️ Иду к столу №$tableId!' : '🏃‍♂️ Я подойду! (Стол №$tableId)',
+            'callback_data': 'call_accept:$callId:$tableId',
+          },
+          {
+            'text': '✅ Обслужен',
+            'callback_data': 'call_done:$callId:$tableId',
+          }
+        ]
+      ];
 
-      await sendMessageWithButton(
+      await sendMessageWithInlineKeyboard(
         text: message,
-        buttonText: '✅ Иду к столу №$tableId!',
-        buttonUrl: acceptUrl,
+        inlineKeyboard: inlineKeyboard,
         customChatId: customChatId,
       );
     } else {
-      // В общий чат без кнопки (или если нет callId)
       await sendMessage(message, customChatId: customChatId);
     }
   }

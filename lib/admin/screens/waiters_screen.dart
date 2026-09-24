@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../waiter/waiter_app.dart' as waiter;
 
 class WaitersScreen extends StatefulWidget {
@@ -165,6 +166,26 @@ class _WaitersScreenState extends State<WaitersScreen> {
               ),
               Row(
                 children: [
+                  ElevatedButton.icon(
+                    onPressed: () async {
+                      final url = Uri.parse('https://t.me/karkyra_ordersbot');
+                      if (await canLaunchUrl(url)) {
+                        await launchUrl(url, mode: LaunchMode.externalApplication);
+                      }
+                    },
+                    icon: const Icon(Icons.send_rounded, color: Colors.white, size: 18),
+                    label: Text(
+                      'Telegram-бот (@karkyra_ordersbot)',
+                      style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF2AABEE),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
                   OutlinedButton.icon(
                     onPressed: () {
                       Navigator.push(
@@ -172,15 +193,15 @@ class _WaitersScreenState extends State<WaitersScreen> {
                         MaterialPageRoute(builder: (_) => const waiter.WaiterApp()),
                       );
                     },
-                    icon: const Icon(Icons.touch_app_rounded, color: Color(0xFFD4A043), size: 18),
+                    icon: const Icon(Icons.touch_app_rounded, color: Color(0xFFD4A043), size: 16),
                     label: Text(
-                      'Панель официанта',
-                      style: GoogleFonts.outfit(color: const Color(0xFFD4A043), fontWeight: FontWeight.bold),
+                      'Веб-панель',
+                      style: GoogleFonts.outfit(color: const Color(0xFFD4A043), fontSize: 13),
                     ),
                     style: OutlinedButton.styleFrom(
                       side: const BorderSide(color: Color(0xFFD4A043)),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -281,13 +302,15 @@ class _WaitersScreenState extends State<WaitersScreen> {
                                       style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
                                     ),
                                     const SizedBox(height: 2),
-                                    Row(
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 4,
+                                      crossAxisAlignment: WrapCrossAlignment.center,
                                       children: [
                                         Text(
                                           'Тел: ${w['phone'] ?? 'Не указан'}',
                                           style: GoogleFonts.outfit(color: Colors.white38, fontSize: 13),
                                         ),
-                                        const SizedBox(width: 8),
                                         Container(
                                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                           decoration: BoxDecoration(
@@ -300,6 +323,39 @@ class _WaitersScreenState extends State<WaitersScreen> {
                                             style: GoogleFonts.outfit(color: const Color(0xFFD4A043), fontSize: 11, fontWeight: FontWeight.bold),
                                           ),
                                         ),
+                                        if (w['telegram_chat_id'] != null && w['telegram_chat_id'].toString().isNotEmpty)
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFF2AABEE).withOpacity(0.15),
+                                              borderRadius: BorderRadius.circular(6),
+                                              border: Border.all(color: const Color(0xFF2AABEE).withOpacity(0.4)),
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                const Icon(Icons.send_rounded, size: 10, color: Color(0xFF2AABEE)),
+                                                const SizedBox(width: 4),
+                                                Text(
+                                                  'TG привязан',
+                                                  style: GoogleFonts.outfit(color: const Color(0xFF2AABEE), fontSize: 11, fontWeight: FontWeight.bold),
+                                                ),
+                                              ],
+                                            ),
+                                          )
+                                        else
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: Colors.white.withOpacity(0.05),
+                                              borderRadius: BorderRadius.circular(6),
+                                              border: Border.all(color: Colors.white12),
+                                            ),
+                                            child: Text(
+                                              'TG не подключен',
+                                              style: GoogleFonts.outfit(color: Colors.white38, fontSize: 11),
+                                            ),
+                                          ),
                                       ],
                                     ),
                                     const SizedBox(height: 4),
