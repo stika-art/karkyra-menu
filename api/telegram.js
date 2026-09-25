@@ -227,7 +227,8 @@ function getAdminKeyboard() {
     keyboard: [
       [{ text: '📊 Сводка за день' }, { text: '🪑 Все столы' }],
       [{ text: '🔔 Активные вызовы' }, { text: '🍽 Все заказы' }],
-      [{ text: '👥 Официанты на смене' }, { text: '🔄 Обновить статус' }]
+      [{ text: '👥 Официанты на смене' }, { text: '🔄 Обновить статус' }],
+      [{ text: '🚪 Выйти из админки' }]
     ],
     resize_keyboard: true
   };
@@ -1129,6 +1130,21 @@ module.exports = async function handler(req, res) {
         if (text === '👥 Официанты на смене' || text === '/waiters') {
           const wl = await buildAdminWaitersList();
           await sendTgMessage(chatId, wl.text, { reply_markup: wl.reply_markup });
+          return res.status(200).json({ ok: true });
+        }
+
+        if (text === '🚪 Выйти из админки' || text === '/admin_logout' || text === '/logout') {
+          const currentAdminSetting = await supabaseFetch('/admin_settings?key=eq.telegram_chat_id&select=value');
+          const currentVal = (currentAdminSetting && currentAdminSetting[0]?.value) || '';
+          const ids = currentVal.split(',').map(s => s.trim()).filter(id => id && id !== String(chatId));
+          await supabaseFetch('/admin_settings?key=eq.telegram_chat_id', {
+            method: 'PATCH',
+            body: JSON.stringify({ value: ids.join(',') })
+          });
+
+          await sendTgMessage(chatId, '🚪 <b>Вы успешно вышли из панели администратора.</b>\n\nПривязка этого телефона аннулирована.\n\n<i>Чтобы войти снова или с нового устройства, отправьте /start и введите пароль администратора (2026).</i>', {
+            reply_markup: { remove_keyboard: true }
+          });
           return res.status(200).json({ ok: true });
         }
 
