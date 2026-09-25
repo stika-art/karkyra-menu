@@ -375,7 +375,7 @@ async function buildAdminDailyStats() {
 }
 
 // Admin: Waiters on duty
-async function buildAdminWaitersList() {
+async function buildAdminWaitersList(showAll = false) {
   const [waiters, tables] = await Promise.all([
     supabaseFetch('/waiters?select=*&order=name.asc'),
     supabaseFetch('/restaurant_tables?select=id,label,waiter_id')
@@ -398,41 +398,73 @@ async function buildAdminWaitersList() {
     }
   }
 
-  let text = '👥 <b>Официанты и статус смены:</b>\n\n';
+  const activeWaiters = waiters.filter(w => w.telegram_chat_id || (waiterTables[w.id] && waiterTables[w.id].length > 0));
   const actionButtons = [];
+  let text = '';
 
-  for (const w of waiters) {
-    const isLinked = !!w.telegram_chat_id;
-    let shiftStatus = '';
-    if (w.is_active === false) {
-      shiftStatus = '🚫 Деактивирован';
-    } else if (isLinked) {
-      shiftStatus = '🟢 На смене';
+  if (!showAll) {
+    if (activeWaiters.length === 0) {
+      text = '👥 <b>Официанты на смене:</b>\n\n' +
+        '⚪ <b>Сейчас на смене никого нет.</b>\n' +
+        'Все официанты сдали смену или не подключены.\n';
     } else {
-      shiftStatus = '⚪ Смена сдана (Вышел)';
+      text = `👥 <b>Официанты на смене (${activeWaiters.length}):</b>\n\n`;
+      for (const w of activeWaiters) {
+        const tablesList = (waiterTables[w.id] && waiterTables[w.id].length > 0)
+          ? waiterTables[w.id].join(', ')
+          : 'столы ещё не выбраны';
+        const pin = w.pin || 'нет';
+
+        text += `🟢 👤 <b>${w.name}</b> (Онлайн)\n` +
+          `   🪑 Столы: <b>${tablesList}</b>\n` +
+          `   🔐 ПИН-код: <code>${pin}</code>\n\n`;
+
+        actionButtons.push([
+          { text: `🚪 Снять со смены: ${w.name}`, callback_data: `admin_unbind:${w.id}` }
+        ]);
+      }
     }
 
-    const tgStatus = isLinked ? `🟢 Привязан (ID: <code>${w.telegram_chat_id}</code>)` : `⚪ Не в сети (вышел)`;
-    const tablesList = (waiterTables[w.id] && waiterTables[w.id].length > 0)
-      ? waiterTables[w.id].join(', ')
-      : 'нет закрепленных столов';
-    const pin = w.pin || 'нет';
+    actionButtons.push([
+      { text: `📋 Все сотрудники (${waiters.length})`, callback_data: 'admin_waiters_all' },
+      { text: '🔄 Обновить', callback_data: 'admin_refresh_waiters' }
+    ]);
+  } else {
+    text = `👥 <b>Все сотрудники ресторана (${waiters.length}):</b>\n\n`;
+    for (const w of waiters) {
+      const isLinked = !!w.telegram_chat_id;
+      let shiftStatus = '';
+      if (w.is_active === false) {
+        shiftStatus = '🚫 Деактивирован';
+      } else if (isLinked) {
+        shiftStatus = '🟢 На смене';
+      } else {
+        shiftStatus = '⚪ Смена сдана (Вышел)';
+      }
 
-    text += `👤 <b>${w.name}</b> — <b>${shiftStatus}</b>\n` +
-      `   📱 Telegram: ${tgStatus}\n` +
-      `   🔐 ПИН-код: <code>${pin}</code>\n` +
-      `   🪑 Столы: ${tablesList}\n\n`;
+      const tgStatus = isLinked ? `🟢 Привязан (ID: <code>${w.telegram_chat_id}</code>)` : `⚪ Не в сети (вышел)`;
+      const tablesList = (waiterTables[w.id] && waiterTables[w.id].length > 0)
+        ? waiterTables[w.id].join(', ')
+        : 'нет закрепленных столов';
+      const pin = w.pin || 'нет';
 
-    if (isLinked) {
-      actionButtons.push([
-        { text: `❌ Отвязать TG: ${w.name}`, callback_data: `admin_unbind:${w.id}` }
-      ]);
+      text += `👤 <b>${w.name}</b> — <b>${shiftStatus}</b>\n` +
+        `   📱 Telegram: ${tgStatus}\n` +
+        `   🔐 ПИН-код: <code>${pin}</code>\n` +
+        `   🪑 Столы: ${tablesList}\n\n`;
+
+      if (isLinked) {
+        actionButtons.push([
+          { text: `🚪 Снять со смены: ${w.name}`, callback_data: `admin_unbind:${w.id}` }
+        ]);
+      }
     }
+
+    actionButtons.push([
+      { text: '👥 Только на смене', callback_data: 'admin_waiters_active' },
+      { text: '🔄 Обновить', callback_data: 'admin_waiters_all' }
+    ]);
   }
-
-  actionButtons.push([
-    { text: '🔄 Обновить список', callback_data: 'admin_refresh_waiters' }
-  ]);
 
   return { text, reply_markup: { inline_keyboard: actionButtons } };
 }
@@ -624,10 +656,18 @@ module.exports = async function handler(req, res) {
         return res.status(200).json({ ok: true });
       }
 
-      // Action: Admin refresh waiters list
-      if (data === 'admin_refresh_waiters') {
-        await answerCallbackQuery(cqId, 'Список официантов обновлен!');
-        const wl = await buildAdminWaitersList();
+      // Action: Admin refresh waiters list (only active on shift by default)
+      if (data === 'admin_refresh_waiters' || data === 'admin_waiters_active') {
+        await answerCallbackQuery(cqId, 'Официанты на смене');
+        const wl = await buildAdminWaitersList(false);
+        await editTgMessage(chatId, messageId, wl.text, { reply_markup: wl.reply_markup });
+        return res.status(200).json({ ok: true });
+      }
+
+      // Action: Admin view all restaurant waiters
+      if (data === 'admin_waiters_all') {
+        await answerCallbackQuery(cqId, 'Все сотрудники ресторана');
+        const wl = await buildAdminWaitersList(true);
         await editTgMessage(chatId, messageId, wl.text, { reply_markup: wl.reply_markup });
         return res.status(200).json({ ok: true });
       }
