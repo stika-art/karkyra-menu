@@ -481,9 +481,18 @@ module.exports = async function handler(req, res) {
       }
 
       const adminChatId = await getAdminChatId();
-      const isAdminChat = adminChatId && (String(chatId) === String(adminChatId) || String(fromUser?.id) === String(adminChatId));
+      const adminIds = (adminChatId || '').split(',').map(s => s.trim()).filter(Boolean);
+      const isAdminChat = adminIds.includes(String(chatId)) || adminIds.includes(String(fromUser?.id));
       const isGroupChat = cq.message?.chat?.type === 'group' || cq.message?.chat?.type === 'supergroup' || (chatId && Number(chatId) < 0);
       const isAuthorized = (waiter && waiter.is_active !== false) || isAdminChat || isGroupChat;
+
+      // Action: Start Admin Auth via button
+      if (data === 'auth_admin') {
+        pendingAuth[chatId] = { role: 'admin' };
+        await answerCallbackQuery(cqId, 'Введите пароль администратора');
+        await sendTgMessage(chatId, '🔐 <b>Вход для Администратора</b>\n\nПожалуйста, отправьте в ответном сообщении <b>пароль администратора</b> (по умолчанию: <code>2026</code>):');
+        return res.status(200).json({ ok: true });
+      }
 
       // Action: Select Waiter profile during auth
       if (data.startsWith('auth_select:')) {
@@ -869,27 +878,69 @@ module.exports = async function handler(req, res) {
       const text = (msg.text || '').trim();
 
       const adminChatId = await getAdminChatId();
-      const isAdmin = adminChatId && (String(chatId) === String(adminChatId) || String(msg.from?.id) === String(adminChatId));
+      const adminIds = (adminChatId || '').split(',').map(s => s.trim()).filter(Boolean);
+      const isAdmin = adminIds.includes(String(chatId)) || adminIds.includes(String(msg.from?.id));
       let waiter = await getWaiterByChatId(chatId);
 
       // Check for Admin password entry or /admin command
       const adminPassRes = await supabaseFetch('/admin_settings?key=eq.admin_password&select=value');
       const adminPassword = (adminPassRes && adminPassRes[0]?.value) || '2026';
 
-      if (text === `/admin ${adminPassword}` || (text === adminPassword && !pendingAuth[chatId] && !waiter)) {
-        await supabaseFetch('/admin_settings?key=eq.telegram_chat_id', {
-          method: 'PATCH',
-          body: JSON.stringify({ value: String(chatId) })
-        });
+      if (text === `/admin ${adminPassword}` || text === adminPassword || text.toLowerCase() === '/admin' || text.toLowerCase() === 'админ') {
+        if (text.toLowerCase() === '/admin' || text.toLowerCase() === 'админ') {
+          pendingAuth[chatId] = { role: 'admin' };
+          await sendTgMessage(chatId, '🔐 <b>Вход для Администратора</b>\n\nПожалуйста, отправьте в ответном сообщении <b>пароль администратора</b> (по умолчанию: <code>2026</code>):');
+          return res.status(200).json({ ok: true });
+        }
+
+        delete pendingAuth[chatId];
+        const currentAdminSetting = await supabaseFetch('/admin_settings?key=eq.telegram_chat_id&select=value');
+        const currentVal = (currentAdminSetting && currentAdminSetting[0]?.value) || '';
+        const ids = currentVal.split(',').map(s => s.trim()).filter(Boolean);
+        if (!ids.includes(String(chatId))) {
+          ids.push(String(chatId));
+          await supabaseFetch('/admin_settings?key=eq.telegram_chat_id', {
+            method: 'PATCH',
+            body: JSON.stringify({ value: ids.join(',') })
+          });
+        }
+
         await sendTgMessage(chatId, `👑 <b>Авторизация Администратора успешна!</b>\n\nЭтот Telegram аккаунт привязан как главный Администратор ресторана Altyn Kazyk.\n\nВам доступен полный контроль над заказами, столами и персоналом.`, {
           reply_markup: getAdminKeyboard()
         });
         return res.status(200).json({ ok: true });
       }
 
-      // A. Check if user is typing a PIN for pending auth
+      // A. Check if user is typing a PIN or password for pending auth
       if (pendingAuth[chatId]) {
         const pending = pendingAuth[chatId];
+
+        // 1. Pending Admin Auth
+        if (pending.role === 'admin') {
+          if (text === adminPassword) {
+            delete pendingAuth[chatId];
+            const currentAdminSetting = await supabaseFetch('/admin_settings?key=eq.telegram_chat_id&select=value');
+            const currentVal = (currentAdminSetting && currentAdminSetting[0]?.value) || '';
+            const ids = currentVal.split(',').map(s => s.trim()).filter(Boolean);
+            if (!ids.includes(String(chatId))) {
+              ids.push(String(chatId));
+              await supabaseFetch('/admin_settings?key=eq.telegram_chat_id', {
+                method: 'PATCH',
+                body: JSON.stringify({ value: ids.join(',') })
+              });
+            }
+
+            await sendTgMessage(chatId, `👑 <b>Авторизация Администратора успешна!</b>\n\nЭтот Telegram аккаунт привязан как главный Администратор ресторана Altyn Kazyk.\n\nВам доступен полный контроль над заказами, столами и персоналом.`, {
+              reply_markup: getAdminKeyboard()
+            });
+            return res.status(200).json({ ok: true });
+          } else {
+            await sendTgMessage(chatId, '❌ <b>Неверный пароль администратора.</b> Попробуйте еще раз или нажмите /start:');
+            return res.status(200).json({ ok: true });
+          }
+        }
+
+        // 2. Pending Waiter PIN
         const target = await supabaseFetch(`/waiters?id=eq.${pending.waiterId}&select=*`);
         if (target && target[0] && target[0].pin === text) {
           delete pendingAuth[chatId];
@@ -1103,22 +1154,20 @@ module.exports = async function handler(req, res) {
           return res.status(200).json({ ok: true });
         }
 
-        // Показываем ТОЛЬКО свободных (ещё не привязанных к Telegram) активных официантов
+        // Показываем свободных активных официантов + кнопку входа Администратора
         const allWaiters = await supabaseFetch('/waiters?is_active=neq.false&select=*&order=name.asc');
         const unassigned = (allWaiters || []).filter(w => !w.telegram_chat_id);
-
-        if (unassigned.length === 0) {
-          await sendTgMessage(chatId, '🔒 <b>Все профили официантов уже привязаны к смартфонам сотрудников.</b>\n\nЕсли вы новый сотрудник ресторана или сменили телефон, обратитесь к администратору для сброса привязки или добавления вашего профиля.', {
-            reply_markup: { remove_keyboard: true }
-          });
-          return res.status(200).json({ ok: true });
-        }
 
         const buttons = unassigned.map(w => ([
           { text: `👤 ${w.name}`, callback_data: `auth_select:${w.id}` }
         ]));
 
-        await sendTgMessage(chatId, `👋 <b>Добро пожаловать в Altyn Kazyk!</b>\n\nЭтот бот предназначен для персонала ресторана.\n\n<b>Пожалуйста, выберите ваше имя из списка:</b>`, {
+        // Кнопка для входа Администратора ресторана
+        buttons.push([
+          { text: '👑 Войти как Администратор', callback_data: 'auth_admin' }
+        ]);
+
+        await sendTgMessage(chatId, `👋 <b>Добро пожаловать в Altyn Kazyk!</b>\n\nЭтот бот предназначен для персонала и управления рестораном.\n\n<b>Выберите ваш профиль для входа:</b>`, {
           reply_markup: { inline_keyboard: buttons }
         });
         return res.status(200).json({ ok: true });
