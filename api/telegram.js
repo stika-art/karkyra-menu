@@ -403,15 +403,23 @@ async function buildAdminWaitersList() {
 
   for (const w of waiters) {
     const isLinked = !!w.telegram_chat_id;
-    const tgStatus = isLinked ? `🟢 Telegram привязан (<code>${w.telegram_chat_id}</code>)` : `⚪ Не привязан к Telegram`;
+    let shiftStatus = '';
+    if (w.is_active === false) {
+      shiftStatus = '🚫 Деактивирован';
+    } else if (isLinked) {
+      shiftStatus = '🟢 На смене';
+    } else {
+      shiftStatus = '⚪ Смена сдана (Вышел)';
+    }
+
+    const tgStatus = isLinked ? `🟢 Привязан (ID: <code>${w.telegram_chat_id}</code>)` : `⚪ Не в сети (вышел)`;
     const tablesList = (waiterTables[w.id] && waiterTables[w.id].length > 0)
       ? waiterTables[w.id].join(', ')
-      : 'столы не выбраны';
+      : 'нет закрепленных столов';
     const pin = w.pin || 'нет';
-    const active = w.is_active !== false ? '✅ Активен' : '🚫 Деактивирован';
 
-    text += `👤 <b>${w.name}</b> (${active})\n` +
-      `   📱 ${tgStatus}\n` +
+    text += `👤 <b>${w.name}</b> — <b>${shiftStatus}</b>\n` +
+      `   📱 Telegram: ${tgStatus}\n` +
       `   🔐 ПИН-код: <code>${pin}</code>\n` +
       `   🪑 Столы: ${tablesList}\n\n`;
 
