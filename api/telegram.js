@@ -210,7 +210,7 @@ async function buildTablesKeyboard(currentWaiter) {
   return { text, reply_markup: { inline_keyboard: rows } };
 }
 
-// Persistent Menu Keyboard
+// Persistent Waiter Menu Keyboard
 function getMainKeyboard() {
   return {
     keyboard: [
@@ -219,6 +219,212 @@ function getMainKeyboard() {
     ],
     resize_keyboard: true
   };
+}
+
+// Persistent Admin Menu Keyboard
+function getAdminKeyboard() {
+  return {
+    keyboard: [
+      [{ text: '📊 Сводка за день' }, { text: '🪑 Все столы' }],
+      [{ text: '🔔 Активные вызовы' }, { text: '🍽 Все заказы' }],
+      [{ text: '👥 Официанты на смене' }, { text: '🔄 Обновить статус' }]
+    ],
+    resize_keyboard: true
+  };
+}
+
+// Admin: Map of all tables with assigned waiter names and active order/call status
+async function buildAdminTablesOverview() {
+  const [tables, allWaiters, activeCalls, activeOrders] = await Promise.all([
+    supabaseFetch('/restaurant_tables?select=*'),
+    supabaseFetch('/waiters?select=id,name'),
+    supabaseFetch('/waiter_calls?status=in.(pending,accepted)&select=table_id,status'),
+    supabaseFetch('/orders_new?status=in.(confirmed,processing,served)&select=table_id')
+  ]);
+
+  if (!tables) return { text: 'Ошибка загрузки столов из базы данных.', reply_markup: { inline_keyboard: [] } };
+
+  const waitersMap = {};
+  if (allWaiters) {
+    for (const w of allWaiters) {
+      waitersMap[w.id] = w.name;
+    }
+  }
+
+  const callingTableIds = new Set((activeCalls || []).map(c => String(c.table_id).replace(/[^0-9]/g, '')));
+  const activeOrderTableIds = new Set((activeOrders || []).map(o => String(o.table_id).replace(/[^0-9]/g, '')));
+
+  const sorted = sortTables(tables);
+  let occupiedCount = 0;
+  let text = '🪑 <b>Карта столов ресторана Altyn Kazyk</b>\n\n';
+
+  for (const t of sorted) {
+    const cleanNum = (t.label || '').replace(/[^0-9]/g, '');
+    const waiterName = t.waiter_id ? (waitersMap[t.waiter_id] || 'Официант') : null;
+    const isCalling = callingTableIds.has(cleanNum) || callingTableIds.has(t.id);
+    const hasOrder = activeOrderTableIds.has(cleanNum) || activeOrderTableIds.has(t.id);
+
+    let statusEmoji = '⚪';
+    let info = 'Свободен';
+
+    if (waiterName) {
+      occupiedCount++;
+      statusEmoji = '🟢';
+      info = `Официант: <b>${waiterName}</b>`;
+    }
+
+    if (hasOrder) {
+      info += ' • 🍽 <i>Заказ активен</i>';
+    }
+    if (isCalling) {
+      info += ' • 🔔 <b>ВЫЗОВ!</b>';
+    }
+
+    text += `${statusEmoji} <b>${t.label}</b>: ${info}\n`;
+  }
+
+  text += `\n📊 <b>Итого:</b> Закреплено столов: <b>${occupiedCount} из ${sorted.length}</b>`;
+
+  const inlineKeyboard = [
+    [
+      { text: '🔄 Обновить столы', callback_data: 'admin_refresh_tables' },
+      { text: '❌ Освободить все столы', callback_data: 'admin_clear_all_tables' }
+    ]
+  ];
+
+  return { text, reply_markup: { inline_keyboard: inlineKeyboard } };
+}
+
+// Admin: Daily Stats
+async function buildAdminDailyStats() {
+  const now = new Date();
+  const bishkekOffsetMs = 6 * 60 * 60 * 1000;
+  const bishkekNow = new Date(now.getTime() + bishkekOffsetMs);
+  const yyyy = bishkekNow.getUTCFullYear();
+  const mm = String(bishkekNow.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(bishkekNow.getUTCDate()).padStart(2, '0');
+  const todayStartUtc = new Date(Date.UTC(yyyy, bishkekNow.getUTCMonth(), bishkekNow.getUTCDate()) - bishkekOffsetMs).toISOString();
+
+  const [orders, menuItems, deliveryOrders, calls, tables, waiters] = await Promise.all([
+    supabaseFetch(`/orders_new?created_at=gte.${todayStartUtc}&select=id,table_id,menu_item_id,quantity,status`),
+    supabaseFetch('/menu_items_db?select=id,title,price'),
+    supabaseFetch(`/delivery_orders?created_at=gte.${todayStartUtc}&select=id,total,status`),
+    supabaseFetch('/waiter_calls?status=in.(pending,accepted)&select=id,status'),
+    supabaseFetch('/restaurant_tables?select=id,waiter_id'),
+    supabaseFetch('/waiters?is_active=neq.false&select=id,name,telegram_chat_id')
+  ]);
+
+  const menuMap = {};
+  if (menuItems) {
+    for (const m of menuItems) {
+      menuMap[m.id] = Number(m.price) || 0;
+    }
+  }
+
+  let tableRevenue = 0;
+  let activeTableDishesCount = 0;
+  const completedTableSets = new Set();
+
+  if (orders) {
+    for (const o of orders) {
+      const price = menuMap[o.menu_item_id] || 0;
+      const sum = (Number(o.quantity) || 1) * price;
+      if (o.status === 'completed') {
+        tableRevenue += sum;
+        if (o.table_id) completedTableSets.add(o.table_id);
+      } else if (['confirmed', 'processing', 'served'].includes(o.status)) {
+        activeTableDishesCount++;
+      }
+    }
+  }
+
+  let deliveryRevenue = 0;
+  let completedDeliveryCount = 0;
+  if (deliveryOrders) {
+    for (const d of deliveryOrders) {
+      if (d.status === 'delivered' || d.status === 'completed') {
+        deliveryRevenue += Number(d.total) || 0;
+        completedDeliveryCount++;
+      }
+    }
+  }
+
+  const totalRevenue = tableRevenue + deliveryRevenue;
+  const totalCompletedChecks = completedTableSets.size + completedDeliveryCount;
+  const avgCheck = totalCompletedChecks > 0 ? Math.round(totalRevenue / totalCompletedChecks) : 0;
+
+  const totalTables = tables ? tables.length : 0;
+  const busyTables = tables ? tables.filter(t => t.waiter_id).length : 0;
+  const activeWaiters = waiters ? waiters.filter(w => w.telegram_chat_id).length : 0;
+  const pendingCalls = calls ? calls.filter(c => c.status === 'pending').length : 0;
+
+  return `📊 <b>Сводка за день (${dd}.${mm}.${yyyy})</b>\n` +
+    `🏛 <b>Ресторан Altyn Kazyk</b>\n\n` +
+    `💰 <b>Общая выручка:</b> <b>${totalRevenue.toLocaleString('ru-RU')} сом</b>\n` +
+    `🍽 Зал: ${tableRevenue.toLocaleString('ru-RU')} сом | 🛵 Доставка: ${deliveryRevenue.toLocaleString('ru-RU')} сом\n` +
+    `🧾 <b>Оплаченных счетов:</b> <b>${totalCompletedChecks}</b>\n` +
+    `📈 <b>Средний чек:</b> <b>${avgCheck.toLocaleString('ru-RU')} сом</b>\n\n` +
+    `─── <b>Текущая обстановка:</b> ───\n` +
+    `🍽 <b>Активных блюд в процессе:</b> ${activeTableDishesCount}\n` +
+    `🔔 <b>Ожидают официанта:</b> ${pendingCalls}\n` +
+    `🪑 <b>Столов на смене:</b> ${busyTables} из ${totalTables}\n` +
+    `👥 <b>Официантов онлайн в TG:</b> ${activeWaiters} из ${(waiters || []).length}\n\n` +
+    `<i>Данные обновлены в реальном времени.</i>`;
+}
+
+// Admin: Waiters on duty
+async function buildAdminWaitersList() {
+  const [waiters, tables] = await Promise.all([
+    supabaseFetch('/waiters?select=*&order=name.asc'),
+    supabaseFetch('/restaurant_tables?select=id,label,waiter_id')
+  ]);
+
+  if (!waiters || waiters.length === 0) {
+    return {
+      text: '👥 <b>Сотрудники не найдены.</b>\nДобавьте официантов в веб-панели администратора.',
+      reply_markup: { inline_keyboard: [] }
+    };
+  }
+
+  const waiterTables = {};
+  if (tables) {
+    for (const t of tables) {
+      if (t.waiter_id) {
+        if (!waiterTables[t.waiter_id]) waiterTables[t.waiter_id] = [];
+        waiterTables[t.waiter_id].push(t.label);
+      }
+    }
+  }
+
+  let text = '👥 <b>Официанты и статус смены:</b>\n\n';
+  const actionButtons = [];
+
+  for (const w of waiters) {
+    const isLinked = !!w.telegram_chat_id;
+    const tgStatus = isLinked ? `🟢 Telegram привязан (<code>${w.telegram_chat_id}</code>)` : `⚪ Не привязан к Telegram`;
+    const tablesList = (waiterTables[w.id] && waiterTables[w.id].length > 0)
+      ? waiterTables[w.id].join(', ')
+      : 'столы не выбраны';
+    const pin = w.pin || 'нет';
+    const active = w.is_active !== false ? '✅ Активен' : '🚫 Деактивирован';
+
+    text += `👤 <b>${w.name}</b> (${active})\n` +
+      `   📱 ${tgStatus}\n` +
+      `   🔐 ПИН-код: <code>${pin}</code>\n` +
+      `   🪑 Столы: ${tablesList}\n\n`;
+
+    if (isLinked) {
+      actionButtons.push([
+        { text: `❌ Отвязать TG: ${w.name}`, callback_data: `admin_unbind:${w.id}` }
+      ]);
+    }
+  }
+
+  actionButtons.push([
+    { text: '🔄 Обновить список', callback_data: 'admin_refresh_waiters' }
+  ]);
+
+  return { text, reply_markup: { inline_keyboard: actionButtons } };
 }
 
 module.exports = async function handler(req, res) {
@@ -274,6 +480,11 @@ module.exports = async function handler(req, res) {
         waiter = await getWaiterByChatId(fromUser.id);
       }
 
+      const adminChatId = await getAdminChatId();
+      const isAdminChat = adminChatId && (String(chatId) === String(adminChatId) || String(fromUser?.id) === String(adminChatId));
+      const isGroupChat = cq.message?.chat?.type === 'group' || cq.message?.chat?.type === 'supergroup' || (chatId && Number(chatId) < 0);
+      const isAuthorized = (waiter && waiter.is_active !== false) || isAdminChat || isGroupChat;
+
       // Action: Select Waiter profile during auth
       if (data.startsWith('auth_select:')) {
         const waiterId = data.replace('auth_select:', '');
@@ -297,10 +508,10 @@ module.exports = async function handler(req, res) {
         return res.status(200).json({ ok: true });
       }
 
-      // SECURITY CHECK: Все остальные действия требуют активного и действующего профиля официанта!
-      if (!waiter || waiter.is_active === false) {
-        await answerCallbackQuery(cqId, '🚫 Доступ заблокирован. Вы не являетесь активным официантом ресторана.', true);
-        await sendTgMessage(chatId, '🚫 <b>Доступ запрещен</b>\n\nВаш аккаунт деактивирован или не привязан к ресторану.\nДля работы обратитесь к администратору или отправьте /start.', {
+      // SECURITY CHECK: Разрешено официантам, администратору и участникам рабочего чата ресторана!
+      if (!isAuthorized) {
+        await answerCallbackQuery(cqId, '🚫 Доступ заблокирован. Вы не являетесь сотрудником ресторана.', true);
+        await sendTgMessage(chatId, '🚫 <b>Доступ запрещен</b>\n\nВы не авторизованы в системе ресторана.\nДля работы обратитесь к администратору или отправьте /start.', {
           reply_markup: { remove_keyboard: true }
         });
         return res.status(200).json({ ok: true });
@@ -378,6 +589,78 @@ module.exports = async function handler(req, res) {
         return res.status(200).json({ ok: true });
       }
 
+      // Action: Admin clear all tables
+      if (data === 'admin_clear_all_tables') {
+        if (!isAdminChat) {
+          await answerCallbackQuery(cqId, 'Доступно только администратору.', true);
+          return res.status(200).json({ ok: true });
+        }
+        await supabaseFetch('/restaurant_tables?waiter_id=not.is.null', {
+          method: 'PATCH',
+          body: JSON.stringify({ waiter_id: null })
+        });
+        await answerCallbackQuery(cqId, 'Все столы освобождены от официантов! 🧹', true);
+        const tbData = await buildAdminTablesOverview();
+        await editTgMessage(chatId, messageId, tbData.text, { reply_markup: tbData.reply_markup });
+        return res.status(200).json({ ok: true });
+      }
+
+      // Action: Admin refresh tables
+      if (data === 'admin_refresh_tables') {
+        await answerCallbackQuery(cqId, 'Карта столов обновлена!');
+        const tbData = await buildAdminTablesOverview();
+        await editTgMessage(chatId, messageId, tbData.text, { reply_markup: tbData.reply_markup });
+        return res.status(200).json({ ok: true });
+      }
+
+      // Action: Admin refresh waiters list
+      if (data === 'admin_refresh_waiters') {
+        await answerCallbackQuery(cqId, 'Список официантов обновлен!');
+        const wl = await buildAdminWaitersList();
+        await editTgMessage(chatId, messageId, wl.text, { reply_markup: wl.reply_markup });
+        return res.status(200).json({ ok: true });
+      }
+
+      // Action: Admin unbind waiter
+      if (data.startsWith('admin_unbind:')) {
+        if (!isAdminChat) {
+          await answerCallbackQuery(cqId, 'Доступно только администратору.', true);
+          return res.status(200).json({ ok: true });
+        }
+        const waiterId = data.replace('admin_unbind:', '');
+        const targetRes = await supabaseFetch(`/waiters?id=eq.${waiterId}&select=*`);
+        const target = targetRes && targetRes[0];
+        if (!target) {
+          await answerCallbackQuery(cqId, 'Официант не найден.', true);
+          return res.status(200).json({ ok: true });
+        }
+
+        // Notify waiter in their personal Telegram chat if linked
+        if (target.telegram_chat_id) {
+          try {
+            await sendTgMessage(target.telegram_chat_id, '🔒 <b>Администратор сбросил вашу привязку к Telegram.</b>\n\nСмена завершена. Для повторного входа обратитесь к администратору или отправьте /start.', {
+              reply_markup: { remove_keyboard: true }
+            });
+          } catch (_) {}
+        }
+
+        // 1. Release tables
+        await supabaseFetch(`/restaurant_tables?waiter_id=eq.${waiterId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ waiter_id: null })
+        });
+        // 2. Clear telegram_chat_id
+        await supabaseFetch(`/waiters?id=eq.${waiterId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ telegram_chat_id: null })
+        });
+
+        await answerCallbackQuery(cqId, `Официант ${target.name} отвязан и снят со столов! ✅`, true);
+        const wl = await buildAdminWaitersList();
+        await editTgMessage(chatId, messageId, wl.text, { reply_markup: wl.reply_markup });
+        return res.status(200).json({ ok: true });
+      }
+
       // Action: Accept Waiter Call ("Иду к столу!")
       if (data.startsWith('call_accept:')) {
         const parts = data.split(':');
@@ -399,7 +682,7 @@ module.exports = async function handler(req, res) {
           });
         }
 
-        const waiterName = waiter ? waiter.name : (fromUser?.first_name || 'Официант');
+        const waiterName = waiter ? waiter.name : (isAdminChat ? 'Администратор' : (fromUser?.first_name || 'Официант'));
         await answerCallbackQuery(cqId, `🏃‍♂️ Вы приняли вызов стола №${tableId}! Гость видит: «Официант уже идет».`, true);
 
         const nowStr = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bishkek' });
@@ -444,7 +727,7 @@ module.exports = async function handler(req, res) {
           body: JSON.stringify({ status: 'completed' })
         });
 
-        const waiterName = waiter ? waiter.name : (fromUser?.first_name || 'Официант');
+        const waiterName = waiter ? waiter.name : (isAdminChat ? 'Администратор' : (fromUser?.first_name || 'Официант'));
         await answerCallbackQuery(cqId, `✅ Вызов со стола №${tableId} обслужен!`);
 
         const nowStr = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bishkek' });
@@ -488,7 +771,7 @@ module.exports = async function handler(req, res) {
           });
         }
 
-        const waiterName = waiter ? waiter.name : (fromUser?.first_name || 'Официант');
+        const waiterName = waiter ? waiter.name : (isAdminChat ? 'Администратор' : (fromUser?.first_name || 'Официант'));
         const statusRu = newStatus === 'processing' 
           ? `👨‍🍳 Готовится (Принял: ${waiterName})` 
           : `🍽 Подано (${waiterName})`;
@@ -548,7 +831,7 @@ module.exports = async function handler(req, res) {
           await supabaseFetch(`/table_participants?table_id=eq.${cleanNum}`, { method: 'DELETE' });
         }
 
-        const waiterName = waiter ? waiter.name : (fromUser?.first_name || 'Официант');
+        const waiterName = waiter ? waiter.name : (isAdminChat ? 'Администратор' : (fromUser?.first_name || 'Официант'));
         await answerCallbackQuery(cqId, `Стол №${tableId} рассчитан и освобождён! 🎉`, true);
         const nowStr = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bishkek' });
 
@@ -585,7 +868,24 @@ module.exports = async function handler(req, res) {
       const chatId = msg.chat.id;
       const text = (msg.text || '').trim();
 
+      const adminChatId = await getAdminChatId();
+      const isAdmin = adminChatId && (String(chatId) === String(adminChatId) || String(msg.from?.id) === String(adminChatId));
       let waiter = await getWaiterByChatId(chatId);
+
+      // Check for Admin password entry or /admin command
+      const adminPassRes = await supabaseFetch('/admin_settings?key=eq.admin_password&select=value');
+      const adminPassword = (adminPassRes && adminPassRes[0]?.value) || '2026';
+
+      if (text === `/admin ${adminPassword}` || (text === adminPassword && !pendingAuth[chatId] && !waiter)) {
+        await supabaseFetch('/admin_settings?key=eq.telegram_chat_id', {
+          method: 'PATCH',
+          body: JSON.stringify({ value: String(chatId) })
+        });
+        await sendTgMessage(chatId, `👑 <b>Авторизация Администратора успешна!</b>\n\nЭтот Telegram аккаунт привязан как главный Администратор ресторана Altyn Kazyk.\n\nВам доступен полный контроль над заказами, столами и персоналом.`, {
+          reply_markup: getAdminKeyboard()
+        });
+        return res.status(200).json({ ok: true });
+      }
 
       // A. Check if user is typing a PIN for pending auth
       if (pendingAuth[chatId]) {
@@ -617,6 +917,181 @@ module.exports = async function handler(req, res) {
         }
       }
 
+      // =============================================================
+      // B. ADMIN COMMANDS & BUTTONS
+      // =============================================================
+      if (isAdmin) {
+        if (text === '/start' || text === '🔄 Обновить статус' || text === '🔄 Главное меню' || text === '/menu') {
+          const welcomeText = `👑 <b>Панель Администратора — Altyn Kazyk</b>\n\n` +
+            `Здравствуйте! Вы авторизованы как <b>Администратор ресторана</b>.\n\n` +
+            `📊 <b>Сводка за день</b> — выручка, чеки и загрузка зала\n` +
+            `🪑 <b>Все столы</b> — статус каждого стола и официантов\n` +
+            `🔔 <b>Активные вызовы</b> — вызовы гостей со всех столов\n` +
+            `🍽 <b>Все заказы</b> — текущие заказы по всему ресторану\n` +
+            `👥 <b>Официанты на смене</b> — статус персонала и ПИН-коды\n\n` +
+            `<i>Нажимайте кнопки внизу для управления:</i>`;
+          await sendTgMessage(chatId, welcomeText, { reply_markup: getAdminKeyboard() });
+          return res.status(200).json({ ok: true });
+        }
+
+        if (text === '📊 Сводка за день' || text === '/stats') {
+          const statsText = await buildAdminDailyStats();
+          await sendTgMessage(chatId, statsText, { reply_markup: getAdminKeyboard() });
+          return res.status(200).json({ ok: true });
+        }
+
+        if (text === '🪑 Все столы' || text === '/tables') {
+          const overview = await buildAdminTablesOverview();
+          await sendTgMessage(chatId, overview.text, { reply_markup: overview.reply_markup });
+          return res.status(200).json({ ok: true });
+        }
+
+        if (text === '🔔 Активные вызовы' || text === '/calls') {
+          const calls = await supabaseFetch('/waiter_calls?status=in.(pending,accepted)&order=created_at.desc&limit=10');
+          if (!calls || calls.length === 0) {
+            await sendTgMessage(chatId, '🔔 Нет активных вызовов официанта. Все столы обслужены! 👍', {
+              reply_markup: getAdminKeyboard()
+            });
+            return res.status(200).json({ ok: true });
+          }
+
+          const [tables, allWaiters] = await Promise.all([
+            supabaseFetch('/restaurant_tables?select=id,label,waiter_id'),
+            supabaseFetch('/waiters?select=id,name')
+          ]);
+          const waitersMap = {};
+          if (allWaiters) allWaiters.forEach(w => waitersMap[w.id] = w.name);
+          const tableWaiterMap = {};
+          if (tables) {
+            tables.forEach(t => {
+              const cleanNum = (t.label || '').replace(/[^0-9]/g, '');
+              if (t.waiter_id && waitersMap[t.waiter_id]) {
+                tableWaiterMap[cleanNum] = waitersMap[t.waiter_id];
+                tableWaiterMap[t.id] = waitersMap[t.waiter_id];
+                tableWaiterMap[t.label] = waitersMap[t.waiter_id];
+              }
+            });
+          }
+
+          for (const c of calls) {
+            const tId = c.table_id || '';
+            const cleanNum = String(tId).replace(/[^0-9]/g, '') || tId;
+            const assignedName = tableWaiterMap[cleanNum] || tableWaiterMap[tId] || 'не назначен';
+            const time = new Date(c.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bishkek' });
+            const statusText = c.status === 'accepted' ? '🏃‍♂️ Официант идет' : '⏳ Ожидает';
+
+            const msgText = `🔔 <b>Вызов со стола №${tId}</b>\n` +
+              `⏰ Время: ${time}\n` +
+              `👤 Закреплен: <b>${assignedName}</b>\n` +
+              `Статус: <b>${statusText}</b>`;
+
+            const buttons = c.status === 'accepted'
+              ? [[{ text: `✅ Завершить (Стол №${tId})`, callback_data: `call_done:${c.id}:${cleanNum}` }]]
+              : [
+                  [
+                    { text: `🏃‍♂️ Я подойду! (Стол №${tId})`, callback_data: `call_accept:${c.id}:${cleanNum}` },
+                    { text: `✅ Обслужен`, callback_data: `call_done:${c.id}:${cleanNum}` }
+                  ]
+                ];
+
+            await sendTgMessage(chatId, msgText, { reply_markup: { inline_keyboard: buttons } });
+          }
+          return res.status(200).json({ ok: true });
+        }
+
+        if (text === '🍽 Все заказы' || text === '🍽 Текущие заказы' || text === '/orders') {
+          const [rawOrders, menuItems, tables, allWaiters] = await Promise.all([
+            supabaseFetch('/orders_new?status=in.(confirmed,processing,served)&order=created_at.desc'),
+            supabaseFetch('/menu_items_db?select=id,title,price'),
+            supabaseFetch('/restaurant_tables?select=id,label,waiter_id'),
+            supabaseFetch('/waiters?select=id,name')
+          ]);
+
+          if (!rawOrders || rawOrders.length === 0) {
+            await sendTgMessage(chatId, '🍽 Активных заказов в зале сейчас нет.', {
+              reply_markup: getAdminKeyboard()
+            });
+            return res.status(200).json({ ok: true });
+          }
+
+          const menuMap = {};
+          if (menuItems) menuItems.forEach(m => menuMap[m.id] = { title: m.title, price: Number(m.price) || 0 });
+
+          const waitersMap = {};
+          if (allWaiters) allWaiters.forEach(w => waitersMap[w.id] = w.name);
+          const tableWaiterMap = {};
+          if (tables) {
+            tables.forEach(t => {
+              const cleanNum = (t.label || '').replace(/[^0-9]/g, '');
+              if (t.waiter_id && waitersMap[t.waiter_id]) {
+                tableWaiterMap[cleanNum] = waitersMap[t.waiter_id];
+                tableWaiterMap[t.id] = waitersMap[t.waiter_id];
+                tableWaiterMap[t.label] = waitersMap[t.waiter_id];
+              }
+            });
+          }
+
+          const grouped = {};
+          for (const ord of rawOrders) {
+            const tid = ord.table_id || 'Без стола';
+            if (!grouped[tid]) {
+              grouped[tid] = { items: [], total: 0, status: ord.status, createdAt: ord.created_at };
+            }
+            const itemInfo = menuMap[ord.menu_item_id] || { title: 'Блюдо', price: 0 };
+            const qty = Number(ord.quantity) || 1;
+            const subtotal = qty * itemInfo.price;
+            grouped[tid].items.push(`• ${itemInfo.title} x${qty} — ${subtotal} сом`);
+            grouped[tid].total += subtotal;
+          }
+
+          for (const [tId, ordData] of Object.entries(grouped)) {
+            const cleanNum = String(tId).replace(/[^0-9]/g, '') || tId;
+            const assignedWaiter = tableWaiterMap[cleanNum] || tableWaiterMap[tId] || 'Не назначен';
+            const time = new Date(ordData.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bishkek' });
+            const statusRu = ordData.status === 'processing'
+              ? '👨‍🍳 Готовится'
+              : ordData.status === 'served'
+                ? '🍽 Подано'
+                : '🆕 Новый';
+
+            const msgText = `🍽 <b>Заказ стола №${tId}</b> (${time})\n` +
+              `👤 Официант: <b>${assignedWaiter}</b>\n\n` +
+              `${ordData.items.join('\n')}\n\n` +
+              `💰 <b>Итого: ${ordData.total.toLocaleString('ru-RU')} сом</b>\n` +
+              `📌 <b>Статус: ${statusRu}</b>`;
+
+            await sendTgMessage(chatId, msgText, {
+              reply_markup: {
+                inline_keyboard: [
+                  [
+                    { text: '👨‍🍳 Готовится', callback_data: `order_status:${cleanNum}:processing` },
+                    { text: '🍽 Подано', callback_data: `order_status:${cleanNum}:served` }
+                  ],
+                  [{ text: '🧾 Расчёт / Освободить', callback_data: `table_clear:${cleanNum}` }]
+                ]
+              }
+            });
+          }
+          return res.status(200).json({ ok: true });
+        }
+
+        if (text === '👥 Официанты на смене' || text === '/waiters') {
+          const wl = await buildAdminWaitersList();
+          await sendTgMessage(chatId, wl.text, { reply_markup: wl.reply_markup });
+          return res.status(200).json({ ok: true });
+        }
+
+        // Fallback for Admin
+        await sendTgMessage(chatId, `👑 <b>Панель Администратора Altyn Kazyk</b>\n\nИспользуйте кнопки меню внизу для быстрого доступа:`, {
+          reply_markup: getAdminKeyboard()
+        });
+        return res.status(200).json({ ok: true });
+      }
+
+      // =============================================================
+      // C. WAITER COMMANDS & BUTTONS
+      // =============================================================
+
       // Command: /start
       if (text === '/start') {
         if (waiter) {
@@ -643,7 +1118,7 @@ module.exports = async function handler(req, res) {
           { text: `👤 ${w.name}`, callback_data: `auth_select:${w.id}` }
         ]));
 
-        await sendTgMessage(chatId, `👋 <b>Добро пожаловать в Altyn Kazyk!</b>\n\nЭтот бот предназначен для официантов ресторана: приём вызовов, заказов и управление столами.\n\n<b>Пожалуйста, выберите ваше имя из списка:</b>`, {
+        await sendTgMessage(chatId, `👋 <b>Добро пожаловать в Altyn Kazyk!</b>\n\nЭтот бот предназначен для персонала ресторана.\n\n<b>Пожалуйста, выберите ваше имя из списка:</b>`, {
           reply_markup: { inline_keyboard: buttons }
         });
         return res.status(200).json({ ok: true });
@@ -668,7 +1143,7 @@ module.exports = async function handler(req, res) {
         }
 
         const myTables = await supabaseFetch(`/restaurant_tables?waiter_id=eq.${waiter.id}&select=id,label`);
-        const myTableIds = myTables ? myTables.map(t => t.id) : [];
+        const myTableCleanNums = (myTables || []).map(t => (t.label || '').replace(/[^0-9]/g, ''));
 
         // Fetch pending or accepted calls
         const calls = await supabaseFetch('/waiter_calls?status=in.(pending,accepted)&order=created_at.desc&limit=10');
@@ -680,17 +1155,18 @@ module.exports = async function handler(req, res) {
 
         for (const c of calls) {
           const tId = c.table_id || '';
-          const isMine = myTableIds.includes(tId) || myTables?.some(mt => mt.label?.includes(tId));
+          const cleanNum = String(tId).replace(/[^0-9]/g, '') || tId;
+          const isMine = myTableCleanNums.includes(cleanNum) || myTables?.some(mt => mt.id === tId);
           const time = new Date(c.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bishkek' });
           const statusText = c.status === 'accepted' ? '🏃‍♂️ Официант идет' : '⏳ Ожидает';
 
           const msgText = `🔔 <b>Вызов со стола №${tId}</b>\n⏰ Время: ${time}\nСтатус: <b>${statusText}</b>${isMine ? ' (Ваш стол)' : ''}`;
           const buttons = c.status === 'accepted'
-            ? [[{ text: `✅ Завершить (Стол №${tId})`, callback_data: `call_done:${c.id}:${tId}` }]]
+            ? [[{ text: `✅ Завершить (Стол №${tId})`, callback_data: `call_done:${c.id}:${cleanNum}` }]]
             : [
                 [
-                  { text: `🏃‍♂️ Иду к столу №${tId}!`, callback_data: `call_accept:${c.id}:${tId}` },
-                  { text: `✅ Обслужен`, callback_data: `call_done:${c.id}:${tId}` }
+                  { text: `🏃‍♂️ Иду к столу №${tId}!`, callback_data: `call_accept:${c.id}:${cleanNum}` },
+                  { text: `✅ Обслужен`, callback_data: `call_done:${c.id}:${cleanNum}` }
                 ]
               ];
 
@@ -706,40 +1182,68 @@ module.exports = async function handler(req, res) {
           return res.status(200).json({ ok: true });
         }
 
-        const myTables = await supabaseFetch(`/restaurant_tables?waiter_id=eq.${waiter.id}&select=id,label`);
-        const myTableIds = myTables ? myTables.map(t => t.id) : [];
+        const [myTables, rawOrders, menuItems] = await Promise.all([
+          supabaseFetch(`/restaurant_tables?waiter_id=eq.${waiter.id}&select=id,label`),
+          supabaseFetch('/orders_new?status=in.(confirmed,processing,served)&order=created_at.desc&limit=25'),
+          supabaseFetch('/menu_items_db?select=id,title,price')
+        ]);
 
-        const activeOrders = await supabaseFetch('/orders_new?status=in.(confirmed,processing,served)&order=created_at.desc&limit=15');
-        if (!activeOrders || activeOrders.length === 0) {
+        const myTableCleanNums = (myTables || []).map(t => (t.label || '').replace(/[^0-9]/g, ''));
+        const menuMap = {};
+        if (menuItems) menuItems.forEach(m => menuMap[m.id] = { title: m.title, price: Number(m.price) || 0 });
+
+        if (!rawOrders || rawOrders.length === 0) {
           await sendTgMessage(chatId, '🍽 Активных заказов нет.');
           return res.status(200).json({ ok: true });
         }
 
-        // Filter for my tables or show all if none assigned
-        const filtered = myTableIds.length > 0
-          ? activeOrders.filter(o => myTableIds.includes(o.table_id) || myTables?.some(mt => mt.label?.includes(o.table_id)))
-          : activeOrders;
+        // Group by table
+        const grouped = {};
+        for (const ord of rawOrders) {
+          const tid = ord.table_id || '';
+          const cleanNum = String(tid).replace(/[^0-9]/g, '') || tid;
+          // Filter only my tables (or all if waiter has no tables yet)
+          if (myTableCleanNums.length > 0 && !myTableCleanNums.includes(cleanNum) && !myTables?.some(mt => mt.id === tid)) {
+            continue;
+          }
 
-        if (filtered.length === 0) {
+          if (!grouped[cleanNum]) {
+            grouped[cleanNum] = { items: [], total: 0, status: ord.status, createdAt: ord.created_at };
+          }
+          const itemInfo = menuMap[ord.menu_item_id] || { title: 'Блюдо', price: 0 };
+          const qty = Number(ord.quantity) || 1;
+          const subtotal = qty * itemInfo.price;
+          grouped[cleanNum].items.push(`• ${itemInfo.title} x${qty} — ${subtotal} сом`);
+          grouped[cleanNum].total += subtotal;
+        }
+
+        const tableEntries = Object.entries(grouped);
+        if (tableEntries.length === 0) {
           await sendTgMessage(chatId, '🍽 На ваших столах сейчас нет активных заказов.');
           return res.status(200).json({ ok: true });
         }
 
-        for (const ord of filtered.slice(0, 5)) {
-          const items = Array.isArray(ord.items) ? ord.items : [];
-          const itemLines = items.map(it => `• ${it.title} x${it.qty || 1} — ${it.price} сом`).join('\n');
-          const time = new Date(ord.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bishkek' });
+        for (const [tId, ordData] of tableEntries.slice(0, 5)) {
+          const time = new Date(ordData.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bishkek' });
+          const statusRu = ordData.status === 'processing'
+            ? '👨‍🍳 Готовится'
+            : ordData.status === 'served'
+              ? '🍽 Подано'
+              : '🆕 Новый';
 
-          const msgText = `🍽 <b>Заказ стола №${ord.table_id}</b> (${time})\n\n${itemLines}\n\n💰 <b>Итого: ${ord.total_amount || 0} сом</b>\nСтатус: <b>${ord.status}</b>`;
+          const msgText = `🍽 <b>Заказ стола №${tId}</b> (${time})\n\n` +
+            `${ordData.items.join('\n')}\n\n` +
+            `💰 <b>Итого: ${ordData.total.toLocaleString('ru-RU')} сом</b>\n` +
+            `📌 <b>Статус: ${statusRu}</b>`;
 
           await sendTgMessage(chatId, msgText, {
             reply_markup: {
               inline_keyboard: [
                 [
-                  { text: '👨‍🍳 Готовится', callback_data: `order_status:${ord.table_id}:processing` },
-                  { text: '🍽 Подано', callback_data: `order_status:${ord.table_id}:served` }
+                  { text: '👨‍🍳 Готовится', callback_data: `order_status:${tId}:processing` },
+                  { text: '🍽 Подано', callback_data: `order_status:${tId}:served` }
                 ],
-                [{ text: '🧾 Расчёт / Освободить', callback_data: `table_clear:${ord.table_id}` }]
+                [{ text: '🧾 Расчёт / Освободить', callback_data: `table_clear:${tId}` }]
               ]
             }
           });
@@ -770,7 +1274,7 @@ module.exports = async function handler(req, res) {
 
       // Default fallback
       if (!waiter || waiter.is_active === false) {
-        await sendTgMessage(chatId, '👋 Нажмите /start для авторизации официанта.', {
+        await sendTgMessage(chatId, '👋 Нажмите /start для авторизации.', {
           reply_markup: { remove_keyboard: true }
         });
       } else {
