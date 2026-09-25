@@ -7,8 +7,7 @@ import 'package:flutter/services.dart';
 import 'dart:async';
 import '../../services/menu_data_service.dart';
 
-// orders_screen.dart — заглушка для Telegram (добавьте токен позже)
-// import '../../services/telegram_service.dart';
+import '../../services/telegram_service.dart';
 
 class OrdersScreen extends StatefulWidget {
   const OrdersScreen({super.key});
@@ -101,8 +100,8 @@ class _OrdersScreenState extends State<OrdersScreen>
               final tableId = payload.newRecord['table_id'];
               _playSound();
               _showSystemNotification('Вызов официанта!', 'Вас ждут за столом №$tableId');
-              _loadOrders(silent: true);
             }
+            _loadOrders(silent: true);
           },
         )
         .onPostgresChanges(
@@ -209,7 +208,7 @@ class _OrdersScreenState extends State<OrdersScreen>
       final callsRes = await Supabase.instance.client
           .from('waiter_calls')
           .select()
-          .eq('status', 'pending')
+          .inFilter('status', ['pending', 'accepted'])
           .order('created_at', ascending: false)
           .timeout(const Duration(seconds: 7));
 
@@ -280,12 +279,56 @@ class _OrdersScreenState extends State<OrdersScreen>
     _loadOrders(silent: true);
   }
 
+  Future<void> _acceptCall(String id, String tableId) async {
+    try {
+      await Supabase.instance.client
+          .from('waiter_calls')
+          .update({'status': 'accepted'})
+          .eq('id', id);
+      await TelegramService.syncCallAccepted(
+        callId: id,
+        tableId: tableId,
+        acceptedBy: 'Администратор',
+      );
+      _loadOrders(silent: true);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Вызов принят! Официант идет ✅'), backgroundColor: Colors.green),
+        );
+      }
+    } catch (e) {
+      debugPrint('Accept call error: $e');
+    }
+  }
+
+  Future<void> _completeCall(String id, String tableId) async {
+    try {
+      await Supabase.instance.client
+          .from('waiter_calls')
+          .update({'status': 'completed'})
+          .eq('id', id);
+      await TelegramService.syncCallCompleted(
+        callId: id,
+        tableId: tableId,
+        completedBy: 'Администратор',
+      );
+      _loadOrders(silent: true);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Вызов обслужен ✅'), backgroundColor: Colors.green),
+        );
+      }
+    } catch (e) {
+      debugPrint('Complete call error: $e');
+    }
+  }
+
   Future<void> _resolveCall(String id) async {
     await Supabase.instance.client
         .from('waiter_calls')
-        .update({'status': 'accepted'})
+        .update({'status': 'completed'})
         .eq('id', id);
-    _loadOrders();
+    _loadOrders(silent: true);
   }
 
   Future<void> _acceptTableOrder(String tableId) async {
@@ -298,6 +341,13 @@ class _OrdersScreenState extends State<OrdersScreen>
           .inFilter('status', ['confirmed', 'ordering'])
           .select();
       debugPrint('ACCEPT ORDER RESULT: $res');
+
+      // Синхронизируем статус с чатами Telegram (кнопка исчезает)
+      await TelegramService.syncOrderAccepted(
+        tableId: tableId,
+        acceptedBy: 'Администратор',
+      );
+
       _loadOrders(silent: true);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -374,6 +424,12 @@ class _OrdersScreenState extends State<OrdersScreen>
         await Supabase.instance.client.from('table_participants').delete().eq('table_id', cleanNum);
         await Supabase.instance.client.from('table_sessions').delete().eq('table_id', cleanNum);
       }
+
+      // Синхронизируем закрытие с Telegram (удаляем все кнопки)
+      await TelegramService.syncTableCleared(
+        tableId: tableId,
+        clearedBy: 'Администратор',
+      );
 
       _loadOrders();
       if (mounted) {
@@ -916,22 +972,52 @@ class _OrdersScreenState extends State<OrdersScreen>
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      isAccepted ? '✅ Официант принял вызов ($timeStr)' : '⏳ Ожидает официанта ($timeStr)',
-                      style: GoogleFonts.outfit(color: isAccepted ? Colors.greenAccent : Colors.orangeAccent, fontSize: 13, fontWeight: FontWeight.bold),
+                      isAccepted
+                          ? '✅ Принят: ${waiterName.isNotEmpty ? waiterName : "Официант"} идет ($timeStr)'
+                          : '⏳ Ожидает официанта ($timeStr)',
+                      style: GoogleFonts.outfit(
+                        color: isAccepted ? Colors.greenAccent : Colors.orangeAccent,
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ],
                 ),
               ),
-              ElevatedButton(
-                onPressed: () => _resolveCall(call['id'].toString()),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green.withOpacity(0.2),
-                  foregroundColor: Colors.green,
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              if (isAccepted)
+                ElevatedButton.icon(
+                  onPressed: () => _completeCall(call['id'].toString(), tableId),
+                  icon: const Icon(Icons.check_rounded, size: 16),
+                  label: Text('Завершить (ОК)', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 13)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green.withOpacity(0.2),
+                    foregroundColor: Colors.greenAccent,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                )
+              else
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ElevatedButton(
+                      onPressed: () => _acceptCall(call['id'].toString(), tableId),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFD4A043).withOpacity(0.2),
+                        foregroundColor: const Color(0xFFD4A043),
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: Text('Иду!', style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
+                    ),
+                    const SizedBox(width: 4),
+                    IconButton(
+                      onPressed: () => _completeCall(call['id'].toString(), tableId),
+                      icon: const Icon(Icons.close_rounded, color: Colors.white38, size: 18),
+                      tooltip: 'Снять вызов',
+                    ),
+                  ],
                 ),
-                child: Text('ОК', style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
-              ),
             ],
           ),
         );

@@ -212,27 +212,13 @@ class CartProvider with ChangeNotifier {
           .eq('table_id', tableId)
           .eq('status', 'ordering');
 
-      // 2. Уведомляем (общий чат + лично официанту, как при вызове)
+      // 2. Уведомляем (общий чат + лично официанту с регистрацией сообщений)
       if (itemsForTelegram.isNotEmpty) {
-        // Отправляем в общий чат
-        await TelegramService.notifyNewOrder(
+        await TelegramService.sendAndRegisterNewOrder(
           tableId: tableId, 
           items: itemsForTelegram, 
           total: total,
-          withAcceptButton: true,
         );
-
-        // Дополнительно отправляем лично официанту, если он закреплён
-        final waiterChatId = await TelegramService.getWaiterChatId(tableId);
-        if (waiterChatId != null && waiterChatId.isNotEmpty) {
-          await TelegramService.notifyNewOrder(
-            tableId: tableId, 
-            items: itemsForTelegram, 
-            total: total,
-            customChatId: waiterChatId,
-            withAcceptButton: true,
-          );
-        }
       }
 
       // 2. Сессия стола в 'confirmed' (для звука в админке)

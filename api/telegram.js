@@ -94,6 +94,24 @@ async function editTgReplyMarkup(chatId, messageId, replyMarkup) {
   });
 }
 
+// Helpers: Stored Telegram messages for group + waiter sync
+async function getStoredTgMessages(key) {
+  try {
+    const res = await supabaseFetch(`/admin_settings?key=eq.${key}&select=value`);
+    if (res && res[0] && res[0].value) {
+      const parsed = JSON.parse(res[0].value);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (_) {}
+  return [];
+}
+
+async function removeStoredTgMessages(key) {
+  try {
+    await supabaseFetch(`/admin_settings?key=eq.${key}`, { method: 'DELETE' });
+  } catch (_) {}
+}
+
 // Find waiter by chatId
 async function getWaiterByChatId(chatId) {
   if (!chatId) return null;
@@ -355,6 +373,7 @@ module.exports = async function handler(req, res) {
         const parts = data.split(':');
         const callId = parts[1];
         const tableId = parts[2] || '';
+        const cleanNum = tableId.replace(/[^0-9]/g, '') || tableId;
 
         // Update database: status = 'accepted'
         await supabaseFetch(`/waiter_calls?id=eq.${callId}`, {
@@ -362,32 +381,44 @@ module.exports = async function handler(req, res) {
           body: JSON.stringify({ status: 'accepted' })
         });
 
-        // Also if waiter is known, we can bind table to them if unassigned
-        if (waiter && tableId) {
-          const cleanNum = tableId.replace(/[^0-9]/g, '');
-          if (cleanNum) {
-            await supabaseFetch(`/restaurant_tables?label=ilike.%25${cleanNum}%25&waiter_id=is.null`, {
-              method: 'PATCH',
-              body: JSON.stringify({ waiter_id: waiter.id })
-            });
-          }
+        // Also if waiter is known, bind table to them if unassigned
+        if (waiter && cleanNum) {
+          await supabaseFetch(`/restaurant_tables?label=ilike.%25${cleanNum}%25&waiter_id=is.null`, {
+            method: 'PATCH',
+            body: JSON.stringify({ waiter_id: waiter.id })
+          });
         }
 
         const waiterName = waiter ? waiter.name : (fromUser?.first_name || 'Официант');
         await answerCallbackQuery(cqId, `🏃‍♂️ Вы приняли вызов стола №${tableId}! Гость видит: «Официант уже идет».`, true);
 
-        // Edit message with action done
         const nowStr = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bishkek' });
-        const oldText = cq.message?.text || `🔔 ВЫЗОВ ОФИЦИАНТА! Стол №${tableId}`;
-        const newText = `${oldText}\n\n🏃‍♂️ <b>ПРИНЯТ (${waiterName} идет к столу) в ${nowStr}</b>`;
+        
+        // Find all linked messages (both admin group and waiter personal chat)
+        let msgList = await getStoredTgMessages(`tg_call_${callId}`);
+        if (!msgList.some(m => String(m.chat_id) === String(chatId) && Number(m.message_id) === Number(messageId))) {
+          msgList.push({ chat_id: chatId, message_id: messageId, original_text: cq.message?.text });
+        }
 
-        await editTgMessage(chatId, messageId, newText, {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: `✅ Обслужен (Стол №${tableId})`, callback_data: `call_done:${callId}:${tableId}` }]
-            ]
-          }
-        });
+        const nextButtons = [
+          [{ text: `✅ Обслужен (Стол №${tableId})`, callback_data: `call_done:${callId}:${cleanNum}` }]
+        ];
+
+        for (const m of msgList) {
+          const mChatId = m.chat_id;
+          const mMessageId = m.message_id;
+          const isClicker = String(mChatId) === String(chatId);
+          const baseText = m.original_text || cq.message?.text || `🔔 <b>ВЫЗОВ ОФИЦИАНТА!</b>\n\n🪑 Стол: <b>№${tableId}</b>`;
+          const cleanText = baseText.replace(/\n\n🏃‍♂️.*$/gs, '');
+          const statusText = isClicker
+            ? `\n\n🏃‍♂️ <b>ВЫ ПРИНЯЛИ ВЫЗОВ (идете к столу) в ${nowStr}</b>`
+            : `\n\n🏃‍♂️ <b>ПРИНЯТ (${waiterName} идет к столу) в ${nowStr}</b>`;
+
+          await editTgMessage(mChatId, mMessageId, cleanText + statusText, {
+            reply_markup: { inline_keyboard: nextButtons }
+          });
+        }
+
         return res.status(200).json({ ok: true });
       }
 
@@ -396,6 +427,7 @@ module.exports = async function handler(req, res) {
         const parts = data.split(':');
         const callId = parts[1];
         const tableId = parts[2] || '';
+        const cleanNum = tableId.replace(/[^0-9]/g, '') || tableId;
 
         await supabaseFetch(`/waiter_calls?id=eq.${callId}`, {
           method: 'PATCH',
@@ -406,13 +438,25 @@ module.exports = async function handler(req, res) {
         await answerCallbackQuery(cqId, `✅ Вызов со стола №${tableId} обслужен!`);
 
         const nowStr = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bishkek' });
-        const oldText = cq.message?.text || `🔔 ВЫЗОВ ОФИЦИАНТА! Стол №${tableId}`;
-        const cleanOld = oldText.replace(/\n\n🏃‍♂️.*$/g, '');
-        const newText = `${cleanOld}\n\n✅ <b>ОБСЛУЖЕН (${waiterName}) в ${nowStr}</b>`;
+        
+        let msgList = await getStoredTgMessages(`tg_call_${callId}`);
+        if (!msgList.some(m => String(m.chat_id) === String(chatId) && Number(m.message_id) === Number(messageId))) {
+          msgList.push({ chat_id: chatId, message_id: messageId, original_text: cq.message?.text });
+        }
 
-        await editTgMessage(chatId, messageId, newText, {
-          reply_markup: { inline_keyboard: [] }
-        });
+        for (const m of msgList) {
+          const mChatId = m.chat_id;
+          const mMessageId = m.message_id;
+          const baseText = m.original_text || cq.message?.text || `🔔 <b>ВЫЗОВ ОФИЦИАНТА!</b>\n\n🪑 Стол: <b>№${tableId}</b>`;
+          const cleanText = baseText.replace(/\n\n🏃‍♂️.*$/gs, '');
+          const statusText = `\n\n✅ <b>ОБСЛУЖЕН (${waiterName}) в ${nowStr}</b>`;
+
+          await editTgMessage(mChatId, mMessageId, cleanText + statusText, {
+            reply_markup: { inline_keyboard: [] }
+          });
+        }
+
+        await removeStoredTgMessages(`tg_call_${callId}`);
         return res.status(200).json({ ok: true });
       }
 
@@ -421,8 +465,8 @@ module.exports = async function handler(req, res) {
         const parts = data.split(':');
         const tableId = parts[1];
         const newStatus = parts[2];
+        const cleanNum = tableId.replace(/[^0-9]/g, '') || tableId;
 
-        const cleanNum = tableId.replace(/[^0-9]/g, '');
         await supabaseFetch(`/orders_new?table_id=eq.${tableId}`, {
           method: 'PATCH',
           body: JSON.stringify({ status: newStatus })
@@ -434,32 +478,47 @@ module.exports = async function handler(req, res) {
           });
         }
 
-        const statusRu = newStatus === 'processing' ? '👨‍🍳 Готовится' : '🍽 Подано';
+        const waiterName = waiter ? waiter.name : (fromUser?.first_name || 'Официант');
+        const statusRu = newStatus === 'processing' 
+          ? `👨‍🍳 Готовится (Принял: ${waiterName})` 
+          : `🍽 Подано (${waiterName})`;
         await answerCallbackQuery(cqId, `Статус заказа: ${statusRu}`);
 
-        const oldText = cq.message?.text || '';
         const nowStr = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bishkek' });
-        const updatedText = `${oldText}\n\n📌 <b>Статус: ${statusRu} (${nowStr})</b>`;
 
         const nextButtons = newStatus === 'processing'
           ? [
-              [{ text: '🍽 Подано', callback_data: `order_status:${tableId}:served` }],
-              [{ text: '🧾 Расчёт / Освободить стол', callback_data: `table_clear:${tableId}` }]
+              [{ text: '🍽 Подано', callback_data: `order_status:${cleanNum}:served` }],
+              [{ text: '🧾 Расчёт / Освободить стол', callback_data: `table_clear:${cleanNum}` }]
             ]
           : [
-              [{ text: '🧾 Расчёт / Освободить стол', callback_data: `table_clear:${tableId}` }]
+              [{ text: '🧾 Расчёт / Освободить стол', callback_data: `table_clear:${cleanNum}` }]
             ];
 
-        await editTgMessage(chatId, messageId, updatedText, {
-          reply_markup: { inline_keyboard: nextButtons }
-        });
+        let msgList = await getStoredTgMessages(`tg_order_${cleanNum}`);
+        if (!msgList.some(m => String(m.chat_id) === String(chatId) && Number(m.message_id) === Number(messageId))) {
+          msgList.push({ chat_id: chatId, message_id: messageId, original_text: cq.message?.text });
+        }
+
+        for (const m of msgList) {
+          const mChatId = m.chat_id;
+          const mMessageId = m.message_id;
+          const baseText = m.original_text || cq.message?.text || `🍽 <b>Новый заказ!</b>\n\n🪑 Стол: <b>№${tableId}</b>`;
+          const cleanText = baseText.replace(/\n\n📌 <b>Статус:.*$/gs, '');
+          const statusText = `\n\n📌 <b>Статус: ${statusRu} в ${nowStr}</b>`;
+
+          await editTgMessage(mChatId, mMessageId, cleanText + statusText, {
+            reply_markup: { inline_keyboard: nextButtons }
+          });
+        }
+
         return res.status(200).json({ ok: true });
       }
 
       // Action: Table Clear (Завершить чек и очистить стол)
       if (data.startsWith('table_clear:')) {
         const tableId = data.replace('table_clear:', '');
-        const cleanNum = tableId.replace(/[^0-9]/g, '');
+        const cleanNum = tableId.replace(/[^0-9]/g, '') || tableId;
 
         // 1. Mark orders completed for analytics
         await supabaseFetch(`/orders_new?table_id=eq.${tableId}&status=neq.completed`, {
@@ -479,11 +538,28 @@ module.exports = async function handler(req, res) {
           await supabaseFetch(`/table_participants?table_id=eq.${cleanNum}`, { method: 'DELETE' });
         }
 
+        const waiterName = waiter ? waiter.name : (fromUser?.first_name || 'Официант');
         await answerCallbackQuery(cqId, `Стол №${tableId} рассчитан и освобождён! 🎉`, true);
-        const oldText = cq.message?.text || '';
-        await editTgMessage(chatId, messageId, `${oldText}\n\n🧾 <b>СТОЛ РАССЧИТАН И ЗАКРЫТ</b>`, {
-          reply_markup: { inline_keyboard: [] }
-        });
+        const nowStr = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bishkek' });
+
+        let msgList = await getStoredTgMessages(`tg_order_${cleanNum}`);
+        if (!msgList.some(m => String(m.chat_id) === String(chatId) && Number(m.message_id) === Number(messageId))) {
+          msgList.push({ chat_id: chatId, message_id: messageId, original_text: cq.message?.text });
+        }
+
+        for (const m of msgList) {
+          const mChatId = m.chat_id;
+          const mMessageId = m.message_id;
+          const baseText = m.original_text || cq.message?.text || `🍽 <b>Новый заказ!</b>\n\n🪑 Стол: <b>№${tableId}</b>`;
+          const cleanText = baseText.replace(/\n\n📌 <b>Статус:.*$/gs, '');
+          const statusText = `\n\n🧾 <b>СТОЛ РАССЧИТАН И ЗАКРЫТ (${waiterName} в ${nowStr})</b>`;
+
+          await editTgMessage(mChatId, mMessageId, cleanText + statusText, {
+            reply_markup: { inline_keyboard: [] }
+          });
+        }
+
+        await removeStoredTgMessages(`tg_order_${cleanNum}`);
         return res.status(200).json({ ok: true });
       }
 

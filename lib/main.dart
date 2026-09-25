@@ -934,20 +934,10 @@ class _MenuHomeScreenState extends State<MenuHomeScreen> {
                       _startWaiterCallPolling();
 
                       if (SettingsService.telegramNotify) {
-                        final waiterChatId = await TelegramService.getWaiterChatId(widget.tableId);
-                        // В общий чат — с кнопкой «Я подойду!» для дежурного персонала
-                        await TelegramService.notifyWaiterCall(
+                        await TelegramService.sendAndRegisterWaiterCall(
                           tableId: widget.tableId,
                           callId: callId.toString(),
                         );
-                        // Персонально закрепленному официанту в личку
-                        if (waiterChatId != null && waiterChatId.isNotEmpty) {
-                          await TelegramService.notifyWaiterCall(
-                            tableId: widget.tableId,
-                            callId: callId.toString(),
-                            customChatId: waiterChatId,
-                          );
-                        }
                       }
                       
                       if (mounted) {
