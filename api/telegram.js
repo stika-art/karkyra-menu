@@ -985,6 +985,11 @@ module.exports = async function handler(req, res) {
       const chatId = msg.chat.id;
       const text = (msg.text || '').trim();
 
+      // Always reset any pending auth on /start
+      if (text === '/start') {
+        delete pendingAuth[chatId];
+      }
+
       const adminChatId = await getAdminChatId();
       const adminIds = (adminChatId || '').split(',').map(s => s.trim()).filter(Boolean);
       const isAdmin = adminIds.includes(String(chatId)) || adminIds.includes(String(msg.from?.id));
