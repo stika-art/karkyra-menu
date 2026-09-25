@@ -226,7 +226,8 @@ function getAdminKeyboard() {
   return {
     keyboard: [
       [{ text: '📊 Сводка за день' }, { text: '🪑 Все столы' }],
-      [{ text: '🔔 Активные вызовы' }, { text: '🍽 Все заказы' }],
+      [{ text: '🍽 Все заказы' }, { text: '🔔 Активные вызовы' }],
+      [{ text: '🛵 Доставка' }, { text: '📅 Брони' }],
       [{ text: '👥 Официанты на смене' }, { text: '🔄 Обновить статус' }],
       [{ text: '🚪 Выйти из админки' }]
     ],
@@ -866,6 +867,120 @@ module.exports = async function handler(req, res) {
         return res.status(200).json({ ok: true });
       }
 
+      // Action: Delivery Status Update
+      if (data.startsWith('deliv_status:')) {
+        const parts = data.split(':');
+        const orderId = parts[1];
+        const newStatus = parts[2];
+
+        await supabaseFetch(`/delivery_orders?id=eq.${orderId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ status: newStatus })
+        });
+
+        const actorName = waiter ? waiter.name : (isAdminChat ? 'Администратор' : (fromUser?.first_name || 'Сотрудник'));
+        const nowStr = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bishkek' });
+
+        let statusText = '';
+        let nextButtons = [];
+
+        if (newStatus === 'processing') {
+          statusText = `\n\n📌 <b>Статус: 👨‍🍳 ПРИНЯТО, ГОТОВИМ (${actorName} в ${nowStr})</b>`;
+          nextButtons = [
+            [{ text: '🛵 Отправлено курьером', callback_data: `deliv_status:${orderId}:delivering` }],
+            [{ text: '❌ Отменить заказ', callback_data: `deliv_status:${orderId}:cancelled` }]
+          ];
+          await answerCallbackQuery(cqId, 'Доставка принята в готовку! 👨‍🍳');
+        } else if (newStatus === 'delivering') {
+          statusText = `\n\n📌 <b>Статус: 🛵 ОТПРАВЛЕНО КУРЬЕРУ (${actorName} в ${nowStr})</b>`;
+          nextButtons = [
+            [{ text: '✅ Доставлен (Завершить)', callback_data: `deliv_status:${orderId}:delivered` }]
+          ];
+          await answerCallbackQuery(cqId, 'Заказ передан курьеру! 🛵');
+        } else if (newStatus === 'delivered' || newStatus === 'done') {
+          statusText = `\n\n📌 <b>Статус: ✅ ЗАКАЗ ДОСТАВЛЕН И ОПЛАЧЕН (${actorName} в ${nowStr})</b>`;
+          nextButtons = [];
+          await answerCallbackQuery(cqId, 'Доставка успешно завершена! 🎉');
+        } else if (newStatus === 'cancelled') {
+          statusText = `\n\n📌 <b>Статус: ❌ ЗАКАЗ ДОСТАВКИ ОТМЕНЁН (${actorName} в ${nowStr})</b>`;
+          nextButtons = [];
+          await answerCallbackQuery(cqId, 'Заказ отменён.');
+        }
+
+        const baseText = cq.message?.text || `🛵 <b>Заказ на доставку #${orderId.slice(0, 8)}</b>`;
+        const cleanText = baseText.replace(/\n\n📌 <b>Статус:.*$/gs, '');
+
+        await editTgMessage(chatId, messageId, cleanText + statusText, {
+          reply_markup: { inline_keyboard: nextButtons }
+        });
+        return res.status(200).json({ ok: true });
+      }
+
+      // Action: Booking Status Update
+      if (data.startsWith('book_status:')) {
+        const parts = data.split(':');
+        const bookingId = parts[1];
+        const action = parts[2];
+
+        // Fetch booking to find table_id
+        const bRes = await supabaseFetch(`/bookings?id=eq.${bookingId}&select=*`);
+        const b = bRes && bRes[0];
+
+        const actorName = waiter ? waiter.name : (isAdminChat ? 'Администратор' : (fromUser?.first_name || 'Сотрудник'));
+        const nowStr = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bishkek' });
+
+        let statusText = '';
+        let nextButtons = [];
+
+        if (action === 'accept') {
+          await supabaseFetch(`/bookings?id=eq.${bookingId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ status: 'accepted' })
+          });
+          statusText = `\n\n📌 <b>Статус: ✅ БРОНЬ ПОДТВЕРЖДЕНА (${actorName} в ${nowStr})</b>`;
+          nextButtons = [
+            [{ text: '🪑 Освободить стол / Завершить', callback_data: `book_status:${bookingId}:done` }]
+          ];
+          await answerCallbackQuery(cqId, 'Бронь подтверждена! ✅');
+        } else if (action === 'cancel') {
+          await supabaseFetch(`/bookings?id=eq.${bookingId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ status: 'cancelled' })
+          });
+          if (b && b.table_id) {
+            await supabaseFetch(`/restaurant_tables?id=eq.${b.table_id}`, {
+              method: 'PATCH',
+              body: JSON.stringify({ is_booked: false })
+            });
+          }
+          statusText = `\n\n📌 <b>Статус: ❌ БРОНЬ ОТКЛОНЕНА (${actorName} в ${nowStr})</b>`;
+          nextButtons = [];
+          await answerCallbackQuery(cqId, 'Бронь отклонена.');
+        } else if (action === 'done') {
+          await supabaseFetch(`/bookings?id=eq.${bookingId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ status: 'completed' })
+          });
+          if (b && b.table_id) {
+            await supabaseFetch(`/restaurant_tables?id=eq.${b.table_id}`, {
+              method: 'PATCH',
+              body: JSON.stringify({ is_booked: false })
+            });
+          }
+          statusText = `\n\n📌 <b>Статус: 🪑 БРОНЬ ЗАВЕРШЕНА, СТОЛ СВОБОДЕН (${actorName} в ${nowStr})</b>`;
+          nextButtons = [];
+          await answerCallbackQuery(cqId, 'Стол успешно освобожден! 🧹');
+        }
+
+        const baseText = cq.message?.text || `📅 <b>Бронь стола</b>`;
+        const cleanText = baseText.replace(/\n\n📌 <b>Статус:.*$/gs, '');
+
+        await editTgMessage(chatId, messageId, cleanText + statusText, {
+          reply_markup: { inline_keyboard: nextButtons }
+        });
+        return res.status(200).json({ ok: true });
+      }
+
       await answerCallbackQuery(cqId);
       return res.status(200).json({ ok: true });
     }
@@ -978,8 +1093,10 @@ module.exports = async function handler(req, res) {
             `Здравствуйте! Вы авторизованы как <b>Администратор ресторана</b>.\n\n` +
             `📊 <b>Сводка за день</b> — выручка, чеки и загрузка зала\n` +
             `🪑 <b>Все столы</b> — статус каждого стола и официантов\n` +
+            `🍽 <b>Все заказы</b> — заказы в зале и статус (принят/готовится/подан)\n` +
             `🔔 <b>Активные вызовы</b> — вызовы гостей со всех столов\n` +
-            `🍽 <b>Все заказы</b> — текущие заказы по всему ресторану\n` +
+            `🛵 <b>Доставка</b> — заказы на доставку и подтверждение\n` +
+            `📅 <b>Брони</b> — бронирование столов и подтверждение\n` +
             `👥 <b>Официанты на смене</b> — статус персонала и ПИН-коды\n\n` +
             `<i>Нажимайте кнопки внизу для управления:</i>`;
           await sendTgMessage(chatId, welcomeText, { reply_markup: getAdminKeyboard() });
@@ -1092,7 +1209,7 @@ module.exports = async function handler(req, res) {
             const itemInfo = menuMap[ord.menu_item_id] || { title: 'Блюдо', price: 0 };
             const qty = Number(ord.quantity) || 1;
             const subtotal = qty * itemInfo.price;
-            grouped[tid].items.push(`• ${itemInfo.title} x${qty} — ${subtotal} сом`);
+            grouped[tid].items.push(`• ${itemInfo.title} x${qty} — ${subtotal.toLocaleString('ru-RU')} сом`);
             grouped[tid].total += subtotal;
           }
 
@@ -1100,28 +1217,176 @@ module.exports = async function handler(req, res) {
             const cleanNum = String(tId).replace(/[^0-9]/g, '') || tId;
             const assignedWaiter = tableWaiterMap[cleanNum] || tableWaiterMap[tId] || 'Не назначен';
             const time = new Date(ordData.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bishkek' });
-            const statusRu = ordData.status === 'processing'
-              ? '👨‍🍳 Готовится'
-              : ordData.status === 'served'
-                ? '🍽 Подано'
-                : '🆕 Новый';
+            
+            let statusBadge = '';
+            let buttons = [];
+
+            if (ordData.status === 'confirmed') {
+              statusBadge = '⏳ <b>НЕ ПРИНЯТ</b> (Ожидает подтверждения)';
+              buttons = [
+                [
+                  { text: '👨‍🍳 Принять заказ (Готовится)', callback_data: `order_status:${cleanNum}:processing` },
+                  { text: '🍽 Подано', callback_data: `order_status:${cleanNum}:served` }
+                ],
+                [{ text: '🧾 Расчёт / Освободить', callback_data: `table_clear:${cleanNum}` }]
+              ];
+            } else if (ordData.status === 'processing') {
+              statusBadge = '👨‍🍳 <b>ПРИНЯТ (Готовится)</b>';
+              buttons = [
+                [{ text: '🍽 Подано', callback_data: `order_status:${cleanNum}:served` }],
+                [{ text: '🧾 Расчёт / Освободить', callback_data: `table_clear:${cleanNum}` }]
+              ];
+            } else if (ordData.status === 'served') {
+              statusBadge = '🍽 <b>ПОДАНО</b>';
+              buttons = [
+                [{ text: '🧾 Расчёт / Освободить', callback_data: `table_clear:${cleanNum}` }]
+              ];
+            } else {
+              statusBadge = `📌 ${ordData.status}`;
+              buttons = [
+                [{ text: '🧾 Расчёт / Освободить', callback_data: `table_clear:${cleanNum}` }]
+              ];
+            }
 
             const msgText = `🍽 <b>Заказ стола №${tId}</b> (${time})\n` +
-              `👤 Официант: <b>${assignedWaiter}</b>\n\n` +
+              `👤 Официант стола: <b>${assignedWaiter}</b>\n` +
+              `Статус: ${statusBadge}\n\n` +
               `${ordData.items.join('\n')}\n\n` +
-              `💰 <b>Итого: ${ordData.total.toLocaleString('ru-RU')} сом</b>\n` +
-              `📌 <b>Статус: ${statusRu}</b>`;
+              `💰 <b>Итого: ${ordData.total.toLocaleString('ru-RU')} сом</b>`;
 
             await sendTgMessage(chatId, msgText, {
               reply_markup: {
-                inline_keyboard: [
-                  [
-                    { text: '👨‍🍳 Готовится', callback_data: `order_status:${cleanNum}:processing` },
-                    { text: '🍽 Подано', callback_data: `order_status:${cleanNum}:served` }
-                  ],
-                  [{ text: '🧾 Расчёт / Освободить', callback_data: `table_clear:${cleanNum}` }]
-                ]
+                inline_keyboard: buttons
               }
+            });
+          }
+          return res.status(200).json({ ok: true });
+        }
+
+        if (text === '🛵 Доставка' || text === '/delivery') {
+          const deliveries = await supabaseFetch('/delivery_orders?status=in.(new,processing,delivering)&order=created_at.desc&limit=15');
+          if (!deliveries || deliveries.length === 0) {
+            await sendTgMessage(chatId, '🛵 <b>Активных заказов на доставку сейчас нет.</b>\n\nВсе заказы доставлены или отсутствуют 👍', {
+              reply_markup: getAdminKeyboard()
+            });
+            return res.status(200).json({ ok: true });
+          }
+
+          for (const d of deliveries) {
+            const time = new Date(d.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bishkek' });
+            let itemsText = '';
+            if (Array.isArray(d.items)) {
+              itemsText = d.items.map(it => `• ${it.title} x${it.qty} — ${((Number(it.price) || 0) * (Number(it.qty) || 1)).toLocaleString('ru-RU')} сом`).join('\n');
+            } else if (d.items) {
+              itemsText = String(d.items);
+            }
+
+            let statusRu = '';
+            let buttons = [];
+            const shortId = d.id ? d.id.slice(0, 8) : '';
+
+            if (d.status === 'new') {
+              statusRu = '⏳ <b>НОВЫЙ (Ожидает подтверждения)</b>';
+              buttons = [
+                [
+                  { text: '👨‍🍳 Принять доставку', callback_data: `deliv_status:${d.id}:processing` },
+                  { text: '❌ Отклонить', callback_data: `deliv_status:${d.id}:cancelled` }
+                ],
+                [
+                  { text: '🛵 Отправить курьером', callback_data: `deliv_status:${d.id}:delivering` }
+                ]
+              ];
+            } else if (d.status === 'processing') {
+              statusRu = '👨‍🍳 <b>ПРИНЯТО, ГОТОВИТСЯ</b>';
+              buttons = [
+                [
+                  { text: '🛵 Отправить курьером', callback_data: `deliv_status:${d.id}:delivering` },
+                  { text: '❌ Отменить заказ', callback_data: `deliv_status:${d.id}:cancelled` }
+                ]
+              ];
+            } else if (d.status === 'delivering') {
+              statusRu = '🛵 <b>В ПУТИ (У курьера)</b>';
+              buttons = [
+                [
+                  { text: '✅ Заказ доставлен (Завершить)', callback_data: `deliv_status:${d.id}:delivered` },
+                  { text: '❌ Отменить заказ', callback_data: `deliv_status:${d.id}:cancelled` }
+                ]
+              ];
+            } else {
+              statusRu = d.status;
+            }
+
+            const total = Number(d.total || 0).toLocaleString('ru-RU');
+            const msgText = `🛵 <b>Заказ на доставку #${shortId}</b> (${time})\n\n` +
+              `👤 Клиент: <b>${d.customer_name || 'Не указано'}</b>\n` +
+              `📞 Контакты/Адрес: <b>${d.customer_phone || 'Не указано'}</b>\n` +
+              `📌 Статус: ${statusRu}\n\n` +
+              `${itemsText ? itemsText + '\n\n' : ''}` +
+              `💰 <b>Итого: ${total} сом</b>`;
+
+            await sendTgMessage(chatId, msgText, {
+              reply_markup: { inline_keyboard: buttons }
+            });
+          }
+          return res.status(200).json({ ok: true });
+        }
+
+        if (text === '📅 Брони' || text === '/bookings') {
+          const [bookings, tables] = await Promise.all([
+            supabaseFetch('/bookings?status=in.(confirmed,accepted)&order=created_at.desc&limit=15'),
+            supabaseFetch('/restaurant_tables?select=id,label')
+          ]);
+
+          if (!bookings || bookings.length === 0) {
+            await sendTgMessage(chatId, '📅 <b>Активных броней столов сейчас нет.</b> 👍', {
+              reply_markup: getAdminKeyboard()
+            });
+            return res.status(200).json({ ok: true });
+          }
+
+          const tableMap = {};
+          if (tables) {
+            tables.forEach(t => tableMap[t.id] = t.label);
+          }
+
+          for (const b of bookings) {
+            const tableLabel = tableMap[b.table_id] || (`Стол №${b.table_id}`);
+            const timeRange = b.end_time ? `${b.booking_time} — ${b.end_time}` : (b.booking_time || 'Время не указано');
+            const preorder = b.preorder_details || b.preorder_type || '';
+
+            let statusRu = '';
+            let buttons = [];
+
+            if (b.status === 'confirmed') {
+              statusRu = '⏳ <b>ОЖИДАЕТ ПОДТВЕРЖДЕНИЯ</b>';
+              buttons = [
+                [
+                  { text: '✅ Подтвердить бронь', callback_data: `book_status:${b.id}:accept` },
+                  { text: '❌ Отклонить бронь', callback_data: `book_status:${b.id}:cancel` }
+                ]
+              ];
+            } else if (b.status === 'accepted') {
+              statusRu = '✅ <b>ПОДТВЕРЖДЕНА</b>';
+              buttons = [
+                [
+                  { text: '🪑 Освободить стол / Завершить', callback_data: `book_status:${b.id}:done` },
+                  { text: '❌ Отменить бронь', callback_data: `book_status:${b.id}:cancel` }
+                ]
+              ];
+            } else {
+              statusRu = b.status;
+            }
+
+            const msgText = `📅 <b>Бронь стола: ${tableLabel}</b>\n\n` +
+              `👤 Гость: <b>${b.customer_name || 'Не указано'}</b>\n` +
+              `📞 Телефон: <b>${b.customer_phone || 'Не указано'}</b>\n` +
+              `👥 Гостей: <b>${b.guests_count || 1} чел.</b>\n` +
+              `⏰ Время брони: <b>${timeRange}</b>\n` +
+              `📌 Статус: ${statusRu}` +
+              (preorder ? `\n🍽 Предзаказ: <i>${preorder}</i>` : '');
+
+            await sendTgMessage(chatId, msgText, {
+              reply_markup: { inline_keyboard: buttons }
             });
           }
           return res.status(200).json({ ok: true });
@@ -1290,11 +1555,35 @@ module.exports = async function handler(req, res) {
 
         for (const [tId, ordData] of tableEntries.slice(0, 5)) {
           const time = new Date(ordData.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bishkek' });
-          const statusRu = ordData.status === 'processing'
-            ? '👨‍🍳 Готовится'
-            : ordData.status === 'served'
-              ? '🍽 Подано'
-              : '🆕 Новый';
+          let statusRu = '';
+          let buttons = [];
+
+          if (ordData.status === 'confirmed') {
+            statusRu = '⏳ <b>НЕ ПРИНЯТ (Новый заказ)</b>';
+            buttons = [
+              [
+                { text: '👨‍🍳 Принять заказ (Готовится)', callback_data: `order_status:${tId}:processing` },
+                { text: '🍽 Подано', callback_data: `order_status:${tId}:served` }
+              ],
+              [{ text: '🧾 Расчёт / Освободить', callback_data: `table_clear:${tId}` }]
+            ];
+          } else if (ordData.status === 'processing') {
+            statusRu = '👨‍🍳 <b>ПРИНЯТ (Готовится)</b>';
+            buttons = [
+              [{ text: '🍽 Подано', callback_data: `order_status:${tId}:served` }],
+              [{ text: '🧾 Расчёт / Освободить', callback_data: `table_clear:${tId}` }]
+            ];
+          } else if (ordData.status === 'served') {
+            statusRu = '🍽 <b>ПОДАНО</b>';
+            buttons = [
+              [{ text: '🧾 Расчёт / Освободить', callback_data: `table_clear:${tId}` }]
+            ];
+          } else {
+            statusRu = ordData.status;
+            buttons = [
+              [{ text: '🧾 Расчёт / Освободить', callback_data: `table_clear:${tId}` }]
+            ];
+          }
 
           const msgText = `🍽 <b>Заказ стола №${tId}</b> (${time})\n\n` +
             `${ordData.items.join('\n')}\n\n` +
@@ -1303,13 +1592,7 @@ module.exports = async function handler(req, res) {
 
           await sendTgMessage(chatId, msgText, {
             reply_markup: {
-              inline_keyboard: [
-                [
-                  { text: '👨‍🍳 Готовится', callback_data: `order_status:${tId}:processing` },
-                  { text: '🍽 Подано', callback_data: `order_status:${tId}:served` }
-                ],
-                [{ text: '🧾 Расчёт / Освободить', callback_data: `table_clear:${tId}` }]
-              ]
+              inline_keyboard: buttons
             }
           });
         }

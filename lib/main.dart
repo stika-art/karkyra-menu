@@ -3851,7 +3851,7 @@ class _BookingSheetState extends State<_BookingSheet> {
                   final fullPhone = '+996$phone';
                   
                   // 1. Сохраняем бронь в базу
-                  await Supabase.instance.client.from('bookings').insert({
+                  final bRes = await Supabase.instance.client.from('bookings').insert({
                     'table_id': widget.table['id'],
                     'customer_name': _nameController.text.trim(),
                     'customer_phone': fullPhone,
@@ -3861,7 +3861,9 @@ class _BookingSheetState extends State<_BookingSheet> {
                     'status': 'confirmed',
                     'preorder_type': _preorderType,
                     'preorder_details': _getPreorderSummary(),
-                  });
+                  }).select().single();
+
+                  final bookingId = bRes['id'].toString();
 
                   // 2. Помечаем стол как забронированный
                   await Supabase.instance.client
@@ -3869,22 +3871,30 @@ class _BookingSheetState extends State<_BookingSheet> {
                       .update({'is_booked': true})
                       .eq('id', widget.table['id']);
 
-                  // 3. Уведомляем в Telegram с полной информацией
+                  // 3. Уведомляем в Telegram с полной информацией и кнопками
                   final preorderInfo = _getPreorderSummary();
-                  final msg = '📅 <b>БРОНЬ СТОЛА!</b>\n\n'
-                      '🪑 Стол: <b>№${widget.table['label']}</b>\n'
-                      '👤 Гость: <b>${_nameController.text}</b>\n'
-                      '📞 Телефон: <b>$fullPhone</b>\n'
-                      '👥 Гостей: <b>$guests</b>\n'
-                      '⏰ Время: <b>${_timeController.text} — ${_endTimeController.text}</b>\n'
-                      '${preorderInfo.isNotEmpty ? '\n🍽 <b>Предзаказ:</b> $preorderInfo' : ''}';
-
                   if (SettingsService.telegramNotify) {
                     final waiterChatId = await TelegramService.getWaiterChatId(widget.table['id'].toString());
-                    // Отправляем и общий чат, и персонально официанту
-                    await TelegramService.sendMessage(msg);
+                    await TelegramService.notifyBooking(
+                      bookingId: bookingId,
+                      tableLabel: widget.table['label'].toString(),
+                      name: _nameController.text.trim(),
+                      phone: fullPhone,
+                      guests: guests,
+                      timeRange: '${_timeController.text} — ${_endTimeController.text}',
+                      preorderInfo: preorderInfo,
+                    );
                     if (waiterChatId != null && waiterChatId.isNotEmpty) {
-                      await TelegramService.sendMessage(msg, customChatId: waiterChatId);
+                      await TelegramService.notifyBooking(
+                        bookingId: bookingId,
+                        tableLabel: widget.table['label'].toString(),
+                        name: _nameController.text.trim(),
+                        phone: fullPhone,
+                        guests: guests,
+                        timeRange: '${_timeController.text} — ${_endTimeController.text}',
+                        preorderInfo: preorderInfo,
+                        customChatId: waiterChatId,
+                      );
                     }
                   }
 

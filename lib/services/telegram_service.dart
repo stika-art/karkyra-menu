@@ -527,19 +527,74 @@ $itemLines
     required String phone,
     required List<Map<String, dynamic>> items,
     required double total,
+    String? orderId,
   }) async {
     final itemLines = items.map((it) => '  • ${it['title']} x${it['qty']} — ${it['price']} сом').join('\n');
     final message = '''
-🚗 <b>Новый заказ на доставку!</b>
+🛵 <b>НОВЫЙ ЗАКАЗ НА ДОСТАВКУ!</b>
 
 👤 Имя: <b>$name</b>
-📞 Телефон: <b>$phone</b>
+📞 Телефон/Адрес: <b>$phone</b>
 
 $itemLines
 
 💰 <b>Итого: ${total.toStringAsFixed(0)} сом</b>
 ''';
-    await sendMessage(message);
+
+    if (orderId != null && orderId.isNotEmpty) {
+      final buttons = [
+        [
+          {
+            'text': '👨‍🍳 Принять доставку',
+            'callback_data': 'deliv_status:$orderId:processing',
+          },
+          {
+            'text': '❌ Отменить',
+            'callback_data': 'deliv_status:$orderId:cancelled',
+          },
+        ]
+      ];
+      await sendMessageWithInlineKeyboard(text: message, inlineKeyboard: buttons);
+    } else {
+      await sendMessage(message);
+    }
+  }
+
+  static Future<void> notifyBooking({
+    required String bookingId,
+    required String tableLabel,
+    required String name,
+    required String phone,
+    required int guests,
+    required String timeRange,
+    String? preorderInfo,
+    String? customChatId,
+  }) async {
+    final message = '''
+📅 <b>НОВАЯ БРОНЬ СТОЛА!</b>
+
+🪑 Стол: <b>№$tableLabel</b>
+👤 Гость: <b>$name</b>
+📞 Телефон: <b>$phone</b>
+👥 Количество гостей: <b>$guests чел.</b>
+⏰ Время: <b>$timeRange</b>
+${(preorderInfo != null && preorderInfo.isNotEmpty) ? '\n🍽 <b>Предзаказ:</b> $preorderInfo' : ''}
+''';
+
+    final buttons = [
+      [
+        {
+          'text': '✅ Подтвердить бронь',
+          'callback_data': 'book_status:$bookingId:accept',
+        },
+        {
+          'text': '❌ Отклонить',
+          'callback_data': 'book_status:$bookingId:cancel',
+        },
+      ]
+    ];
+
+    await sendMessageWithInlineKeyboard(text: message, inlineKeyboard: buttons, customChatId: customChatId);
   }
 
   static Future<void> notifyNewOrder({

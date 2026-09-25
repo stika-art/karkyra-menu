@@ -69,6 +69,7 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
         if (SettingsService.telegramNotify) {
           final msgDetails = 'Адрес: ${_addressController.text.trim()}';
           await TelegramService.notifyDeliveryOrder(
+            orderId: _orderId,
             name: _nameController.text.trim(),
             phone: '+996' + _phoneController.text.trim() + '\n' + msgDetails,
             items: preparedItems,
