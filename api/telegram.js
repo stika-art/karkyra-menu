@@ -205,7 +205,7 @@ function getMainKeyboard() {
   return {
     keyboard: [
       [{ text: '🪑 Мои столы' }, { text: '🔔 Активные вызовы' }],
-      [{ text: '🍽 Текущие заказы' }, { text: '🚪 Сменить официанта' }]
+      [{ text: '🍽 Текущие заказы' }, { text: '🚪 Выйти / Сдать смену' }]
     ],
     resize_keyboard: true
   };
@@ -267,25 +267,10 @@ module.exports = async function handler(req, res) {
       // Action: Select Waiter profile during auth
       if (data.startsWith('auth_select:')) {
         const waiterId = data.replace('auth_select:', '');
-        const targetWaiters = await supabaseFetch(`/waiters?id=eq.${waiterId}&select=*`);
+        const targetWaiters = await supabaseFetch(`/waiters?id=eq.${waiterId}&is_active=neq.false&select=*`);
         const target = targetWaiters && targetWaiters[0];
         if (!target) {
-          await answerCallbackQuery(cqId, 'Официант не найден.', true);
-          return res.status(200).json({ ok: true });
-        }
-
-        // If waiter has no PIN or empty PIN, bind immediately
-        if (!target.pin || target.pin === '0000' || target.pin === '1234') {
-          await supabaseFetch(`/waiters?id=eq.${target.id}`, {
-            method: 'PATCH',
-            body: JSON.stringify({ telegram_chat_id: chatId.toString() })
-          });
-          await answerCallbackQuery(cqId, `Успешно! Вы вошли как ${target.name}`);
-          const kbData = await buildTablesKeyboard(target);
-          await sendTgMessage(chatId, `🎉 <b>Добро пожаловать, ${target.name}!</b>\n\nВы успешно привязали Telegram. Теперь выберите ваши столы:`, {
-            reply_markup: getMainKeyboard()
-          });
-          await sendTgMessage(chatId, kbData.text, { reply_markup: kbData.reply_markup });
+          await answerCallbackQuery(cqId, 'Официант не найден или деактивирован.', true);
           return res.status(200).json({ ok: true });
         }
 
@@ -293,6 +278,15 @@ module.exports = async function handler(req, res) {
         pendingAuth[chatId] = { waiterId: target.id, waiterName: target.name };
         await answerCallbackQuery(cqId, `Введите ПИН-код для ${target.name}`);
         await sendTgMessage(chatId, `🔐 Введите 4-значный ПИН-код для подтверждения (официант: <b>${target.name}</b>):`);
+        return res.status(200).json({ ok: true });
+      }
+
+      // SECURITY CHECK: Все остальные действия требуют активного и действующего профиля официанта!
+      if (!waiter || waiter.is_active === false) {
+        await answerCallbackQuery(cqId, '🚫 Доступ заблокирован. Вы не являетесь активным официантом ресторана.', true);
+        await sendTgMessage(chatId, '🚫 <b>Доступ запрещен</b>\n\nВаш аккаунт деактивирован или не привязан к ресторану.\nДля работы обратитесь к администратору или отправьте /start.', {
+          reply_markup: { remove_keyboard: true }
+        });
         return res.status(200).json({ ok: true });
       }
 
@@ -743,26 +737,34 @@ module.exports = async function handler(req, res) {
         return res.status(200).json({ ok: true });
       }
 
-      // Command: /logout or button "🚪 Сменить официанта"
-      if (text === '/logout' || text === '🚪 Сменить официанта' || text === '🚪 Выйти') {
+      // Command: /logout or button "🚪 Выйти / Сдать смену"
+      if (text === '/logout' || text === '🚪 Выйти / Сдать смену' || text === '🚪 Выйти' || text === '🚪 Сменить официанта') {
         if (waiter) {
+          // 1. Освобождаем все столы, закрепленные за этим официантом
+          await supabaseFetch(`/restaurant_tables?waiter_id=eq.${waiter.id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ waiter_id: null })
+          });
+          // 2. Сбрасываем привязку Telegram
           await supabaseFetch(`/waiters?id=eq.${waiter.id}`, {
             method: 'PATCH',
             body: JSON.stringify({ telegram_chat_id: null })
           });
         }
         delete pendingAuth[chatId];
-        await sendTgMessage(chatId, '🚪 Вы вышли из профиля официанта.\n\nЧтобы войти снова, нажмите /start.', {
+        await sendTgMessage(chatId, '🚪 <b>Смена завершена. Вы успешно вышли из системы.</b>\n\nВсе ваши столы освобождены для коллег.\n\n<i>Чтобы снова выйти на смену, отправьте /start</i>', {
           reply_markup: { remove_keyboard: true }
         });
         return res.status(200).json({ ok: true });
       }
 
       // Default fallback
-      if (!waiter) {
-        await sendTgMessage(chatId, '👋 Нажмите /start для выбора профиля официанта.');
+      if (!waiter || waiter.is_active === false) {
+        await sendTgMessage(chatId, '👋 Нажмите /start для авторизации официанта.', {
+          reply_markup: { remove_keyboard: true }
+        });
       } else {
-        await sendTgMessage(chatId, `👋 Официант: <b>${waiter.name}</b>\n\nИспользуйте меню внизу или команды:\n/tables — Мои столы\n/calls — Вызовы гостей\n/orders — Заказы\n/logout — Сменить профиль`, {
+        await sendTgMessage(chatId, `👋 Официант: <b>${waiter.name}</b>\n\nИспользуйте кнопки меню внизу:\n🪑 <b>Мои столы</b> — выбор столов на смену\n🔔 <b>Активные вызовы</b> — вызовы гостей\n🍽 <b>Текущие заказы</b> — заказы на ваших столах\n🚪 <b>Выйти / Сдать смену</b> — завершение смены`, {
           reply_markup: getMainKeyboard()
         });
       }

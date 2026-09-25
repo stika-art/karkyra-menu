@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../services/telegram_service.dart';
 import '../../waiter/waiter_app.dart' as waiter;
 
 class WaitersScreen extends StatefulWidget {
@@ -381,10 +382,57 @@ class _WaitersScreenState extends State<WaitersScreen> {
                                 ),
                               ),
 
-                              // Кнопки действия (Редактировать, Удалить)
+                              // Кнопки действия (Сбросить TG, Редактировать, Удалить)
                               Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
+                                  if (w['telegram_chat_id'] != null && w['telegram_chat_id'].toString().isNotEmpty) ...[
+                                    Container(
+                                      decoration: BoxDecoration(color: const Color(0xFF2AABEE).withOpacity(0.12), borderRadius: BorderRadius.circular(12)),
+                                      child: IconButton(
+                                        onPressed: () async {
+                                          final confirm = await showDialog<bool>(
+                                            context: context,
+                                            builder: (ctx) => AlertDialog(
+                                              backgroundColor: const Color(0xFF1E1E1E),
+                                              title: Text('Отвязать Telegram?', style: GoogleFonts.outfit(color: Colors.white)),
+                                              content: Text('Отвязать Telegram официанта ${w['name']}? Все его столы будут освобождены, а бот отключен до повторного входа.', style: GoogleFonts.outfit(color: Colors.white70)),
+                                              actions: [
+                                                TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Отмена', style: TextStyle(color: Colors.white38))),
+                                                TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Отвязать', style: TextStyle(color: Color(0xFF2AABEE)))),
+                                              ],
+                                            )
+                                          );
+                                          if (confirm == true) {
+                                            final tgChatId = w['telegram_chat_id']?.toString();
+                                            await Supabase.instance.client
+                                                .from('restaurant_tables')
+                                                .update({'waiter_id': null})
+                                                .eq('waiter_id', w['id']);
+                                            await Supabase.instance.client
+                                                .from('waiters')
+                                                .update({'telegram_chat_id': null})
+                                                .eq('id', w['id']);
+                                            if (tgChatId != null && tgChatId.isNotEmpty) {
+                                              await TelegramService.sendMessage(
+                                                '🚪 <b>Привязка Telegram сброшена администратором.</b>\n\nВсе ваши столы освобождены. Чтобы войти снова, отправьте /start.',
+                                                customChatId: tgChatId,
+                                              );
+                                            }
+                                            _load();
+                                            if (mounted) {
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                const SnackBar(content: Text('Telegram успешно отвязан ✅'), backgroundColor: Colors.green),
+                                              );
+                                            }
+                                          }
+                                        },
+                                        icon: const Icon(Icons.link_off_rounded, color: Color(0xFF2AABEE), size: 18),
+                                        tooltip: 'Отвязать Telegram',
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                  ],
                                   Container(
                                     decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(12)),
                                     child: IconButton(
@@ -403,7 +451,7 @@ class _WaitersScreenState extends State<WaitersScreen> {
                                           builder: (ctx) => AlertDialog(
                                             backgroundColor: const Color(0xFF1E1E1E),
                                             title: Text('Удалить официанта?', style: GoogleFonts.outfit(color: Colors.white)),
-                                            content: Text('Вы уверены, что хотите удалить ${w['name']}?', style: GoogleFonts.outfit(color: Colors.white70)),
+                                            content: Text('Вы уверены, что хотите удалить ${w['name']}? Доступ к боту будет немедленно заблокирован, а все закрепленные столы освобождены.', style: GoogleFonts.outfit(color: Colors.white70)),
                                             actions: [
                                               TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Отмена', style: TextStyle(color: Colors.white38))),
                                               TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Удалить', style: TextStyle(color: Colors.redAccent))),
@@ -411,6 +459,22 @@ class _WaitersScreenState extends State<WaitersScreen> {
                                           )
                                         );
                                         if (confirm == true) {
+                                          final tgChatId = w['telegram_chat_id']?.toString();
+                                          // 1. Освобождаем столы
+                                          await Supabase.instance.client
+                                              .from('restaurant_tables')
+                                              .update({'waiter_id': null})
+                                              .eq('waiter_id', w['id']);
+
+                                          // 2. Отправляем уведомление об отзыве доступа
+                                          if (tgChatId != null && tgChatId.isNotEmpty) {
+                                            await TelegramService.sendMessage(
+                                              '🚫 <b>Ваш доступ к ресторану Altyn Kazyk был отозван администратором.</b>\n\nВы больше не являетесь сотрудником ресторана. Функции бота заблокированы.',
+                                              customChatId: tgChatId,
+                                            );
+                                          }
+
+                                          // 3. Удаляем сотрудника из базы
                                           await Supabase.instance.client.from('waiters').delete().eq('id', w['id']);
                                           _load();
                                         }
