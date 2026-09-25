@@ -169,14 +169,14 @@ class _WaitersScreenState extends State<WaitersScreen> {
                 children: [
                   ElevatedButton.icon(
                     onPressed: () async {
-                      final url = Uri.parse('https://t.me/karkyra_ordersbot');
+                      final url = Uri.parse('https://t.me/altynkazyk_bot');
                       if (await canLaunchUrl(url)) {
                         await launchUrl(url, mode: LaunchMode.externalApplication);
                       }
                     },
                     icon: const Icon(Icons.send_rounded, color: Colors.white, size: 18),
                     label: Text(
-                      'Telegram-бот (@karkyra_ordersbot)',
+                      'Telegram-бот (@altynkazyk_bot)',
                       style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold),
                     ),
                     style: ElevatedButton.styleFrom(

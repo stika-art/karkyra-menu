@@ -4556,14 +4556,14 @@ class _WaitersMigratedPage extends StatelessWidget {
                       elevation: 4,
                     ),
                     onPressed: () async {
-                      final url = Uri.parse('https://t.me/karkyra_ordersbot');
+                      final url = Uri.parse('https://t.me/altynkazyk_bot');
                       if (await canLaunchUrl(url)) {
                         await launchUrl(url, mode: LaunchMode.externalApplication);
                       }
                     },
                     icon: const Icon(Icons.send_rounded, size: 20),
                     label: Text(
-                      'Открыть @karkyra_ordersbot',
+                      'Открыть @altynkazyk_bot',
                       style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.bold),
                     ),
                   ),

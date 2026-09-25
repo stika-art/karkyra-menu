@@ -1,9 +1,9 @@
 // Vercel Serverless Function: Telegram Webhook for Waiters & Orders
-// Handles Telegram bot updates (@karkyra_ordersbot)
+// Handles Telegram bot updates (@altynkazyk_bot)
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://vgzdpbwcenckmjtgfvfw.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZnemRwYndjZW5ja21qdGdmdmZ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2NDkxODAsImV4cCI6MjA5MjIyNTE4MH0.pFmPP9A9Tov4b6URS-LP5b3lYyB0fVXTKDvLY_MR120';
-const DEFAULT_TG_TOKEN = process.env.TELEGRAM_TOKEN || '8714026573:AAG2XKdmJKvvk8UWYcKg6Z9dc4Ucgm4pqa0';
+const DEFAULT_TG_TOKEN = process.env.TELEGRAM_TOKEN || '8874121083:AAH0YfzG_M-VZ-E_oFBmDe1FhgUY3wLcA_A';
 
 // In-memory state for pending auth pins: { [chatId]: { waiterId, waiterName } }
 const pendingAuth = {};
