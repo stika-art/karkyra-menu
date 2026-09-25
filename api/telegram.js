@@ -18,6 +18,16 @@ async function getTelegramToken() {
   return DEFAULT_TG_TOKEN;
 }
 
+async function getAdminChatId() {
+  try {
+    const res = await supabaseFetch('/admin_settings?key=eq.telegram_chat_id&select=value');
+    if (res && res[0] && res[0].value) {
+      return res[0].value;
+    }
+  } catch (_) {}
+  return null;
+}
+
 async function supabaseFetch(path, options = {}) {
   const url = `${SUPABASE_URL}/rest/v1${path}`;
   const headers = {
@@ -271,6 +281,12 @@ module.exports = async function handler(req, res) {
         const target = targetWaiters && targetWaiters[0];
         if (!target) {
           await answerCallbackQuery(cqId, 'Официант не найден или деактивирован.', true);
+          return res.status(200).json({ ok: true });
+        }
+
+        if (target.telegram_chat_id && target.telegram_chat_id !== chatId.toString()) {
+          await answerCallbackQuery(cqId, '⚠️ Этот профиль уже привязан к другому телефону!', true);
+          await sendTgMessage(chatId, `⚠️ Профиль официанта <b>${target.name}</b> уже привязан к другому Telegram-аккаунту.\n\nЕсли вы сменили устройство или потеряли телефон, обратитесь к администратору для сброса привязки.`);
           return res.status(200).json({ ok: true });
         }
 
@@ -581,6 +597,14 @@ module.exports = async function handler(req, res) {
             method: 'PATCH',
             body: JSON.stringify({ telegram_chat_id: chatId.toString() })
           });
+
+          // Уведомляем администратора в общий чат о новой привязке устройства
+          const adminChat = await getAdminChatId();
+          if (adminChat) {
+            const senderUser = msg.from?.username ? `@${msg.from.username}` : (msg.from?.first_name || 'Пользователь');
+            await sendTgMessage(adminChat, `🛡 <b>Безопасность:</b> Официант <b>${target[0].name}</b> успешно привязал Telegram (${senderUser}, Chat ID: <code>${chatId}</code>).`);
+          }
+
           const kbData = await buildTablesKeyboard(target[0]);
           await sendTgMessage(chatId, `🎉 <b>Успешно!</b> Вы вошли как <b>${target[0].name}</b>.\n\nТеперь выберите столы, которые вы обслуживаете:`, {
             reply_markup: getMainKeyboard()
@@ -589,24 +613,6 @@ module.exports = async function handler(req, res) {
           return res.status(200).json({ ok: true });
         } else {
           await sendTgMessage(chatId, `❌ Неверный ПИН-код для <b>${pending.waiterName}</b>. Попробуйте еще раз или выберите другого официанта через /start:`);
-          return res.status(200).json({ ok: true });
-        }
-      }
-
-      // Direct PIN input without prior selection (e.g. user just typed "0000" or "1234")
-      if (/^\d{4}$/.test(text) && !waiter) {
-        const matches = await supabaseFetch(`/waiters?pin=eq.${text}&select=*`);
-        if (matches && matches.length === 1) {
-          const matchedWaiter = matches[0];
-          await supabaseFetch(`/waiters?id=eq.${matchedWaiter.id}`, {
-            method: 'PATCH',
-            body: JSON.stringify({ telegram_chat_id: chatId.toString() })
-          });
-          const kbData = await buildTablesKeyboard(matchedWaiter);
-          await sendTgMessage(chatId, `🎉 <b>Успешно!</b> Вы вошли как <b>${matchedWaiter.name}</b>.\n\nВыберите ваши столы:`, {
-            reply_markup: getMainKeyboard()
-          });
-          await sendTgMessage(chatId, kbData.text, { reply_markup: kbData.reply_markup });
           return res.status(200).json({ ok: true });
         }
       }
@@ -622,14 +628,18 @@ module.exports = async function handler(req, res) {
           return res.status(200).json({ ok: true });
         }
 
-        // Waiter not authorized -> show list of waiters
+        // Показываем ТОЛЬКО свободных (ещё не привязанных к Telegram) активных официантов
         const allWaiters = await supabaseFetch('/waiters?is_active=neq.false&select=*&order=name.asc');
-        if (!allWaiters || allWaiters.length === 0) {
-          await sendTgMessage(chatId, '❌ В системе нет зарегистрированных официантов. Обратитесь к администратору ресторана.');
+        const unassigned = (allWaiters || []).filter(w => !w.telegram_chat_id);
+
+        if (unassigned.length === 0) {
+          await sendTgMessage(chatId, '🔒 <b>Все профили официантов уже привязаны к смартфонам сотрудников.</b>\n\nЕсли вы новый сотрудник ресторана или сменили телефон, обратитесь к администратору для сброса привязки или добавления вашего профиля.', {
+            reply_markup: { remove_keyboard: true }
+          });
           return res.status(200).json({ ok: true });
         }
 
-        const buttons = allWaiters.map(w => ([
+        const buttons = unassigned.map(w => ([
           { text: `👤 ${w.name}`, callback_data: `auth_select:${w.id}` }
         ]));
 
