@@ -488,14 +488,6 @@ module.exports = async function handler(req, res) {
       const isGroupChat = cq.message?.chat?.type === 'group' || cq.message?.chat?.type === 'supergroup' || (chatId && Number(chatId) < 0);
       const isAuthorized = (waiter && waiter.is_active !== false) || isAdminChat || isGroupChat;
 
-      // Action: Start Admin Auth via button
-      if (data === 'auth_admin') {
-        pendingAuth[chatId] = { role: 'admin' };
-        await answerCallbackQuery(cqId, 'Введите пароль администратора');
-        await sendTgMessage(chatId, '🔐 <b>Вход для Администратора</b>\n\nПожалуйста, отправьте в ответном сообщении <b>пароль администратора</b> (по умолчанию: <code>2026</code>):');
-        return res.status(200).json({ ok: true });
-      }
-
       // Action: Select Waiter profile during auth
       if (data.startsWith('auth_select:')) {
         const waiterId = data.replace('auth_select:', '');
@@ -1002,10 +994,10 @@ module.exports = async function handler(req, res) {
       const adminPassRes = await supabaseFetch('/admin_settings?key=eq.admin_password&select=value');
       const adminPassword = (adminPassRes && adminPassRes[0]?.value) || '2026';
 
-      if (text === `/admin ${adminPassword}` || text === adminPassword || text.toLowerCase() === '/admin' || text.toLowerCase() === 'админ') {
-        if (text.toLowerCase() === '/admin' || text.toLowerCase() === 'админ') {
+      if (text === `/admin ${adminPassword}` || text === adminPassword || text.toLowerCase() === '/admin') {
+        if (text.toLowerCase() === '/admin') {
           pendingAuth[chatId] = { role: 'admin' };
-          await sendTgMessage(chatId, '🔐 <b>Вход для Администратора</b>\n\nПожалуйста, отправьте в ответном сообщении <b>пароль администратора</b> (по умолчанию: <code>2026</code>):');
+          await sendTgMessage(chatId, '🔐 Введите ключ доступа:');
           return res.status(200).json({ ok: true });
         }
 
@@ -1051,7 +1043,8 @@ module.exports = async function handler(req, res) {
             });
             return res.status(200).json({ ok: true });
           } else {
-            await sendTgMessage(chatId, '❌ <b>Неверный пароль администратора.</b> Попробуйте еще раз или нажмите /start:');
+            delete pendingAuth[chatId];
+            await sendTgMessage(chatId, '❌ Неверный ключ доступа.');
             return res.status(200).json({ ok: true });
           }
         }
@@ -1407,7 +1400,7 @@ module.exports = async function handler(req, res) {
             body: JSON.stringify({ value: ids.join(',') })
           });
 
-          await sendTgMessage(chatId, '🚪 <b>Вы успешно вышли из панели администратора.</b>\n\nПривязка этого телефона аннулирована.\n\n<i>Чтобы войти снова или с нового устройства, отправьте /start и введите пароль администратора (2026).</i>', {
+          await sendTgMessage(chatId, '🚪 <b>Вы успешно вышли из панели администратора.</b>\n\nПривязка этого телефона аннулирована.', {
             reply_markup: { remove_keyboard: true }
           });
           return res.status(200).json({ ok: true });
@@ -1435,7 +1428,7 @@ module.exports = async function handler(req, res) {
           return res.status(200).json({ ok: true });
         }
 
-        // Показываем свободных активных официантов + кнопку входа Администратора
+        // Показываем свободных активных официантов
         const allWaiters = await supabaseFetch('/waiters?is_active=neq.false&select=*&order=name.asc');
         const unassigned = (allWaiters || []).filter(w => !w.telegram_chat_id);
 
@@ -1443,12 +1436,7 @@ module.exports = async function handler(req, res) {
           { text: `👤 ${w.name}`, callback_data: `auth_select:${w.id}` }
         ]));
 
-        // Кнопка для входа Администратора ресторана
-        buttons.push([
-          { text: '👑 Войти как Администратор', callback_data: 'auth_admin' }
-        ]);
-
-        await sendTgMessage(chatId, `👋 <b>Добро пожаловать в Altyn Kazyk!</b>\n\nЭтот бот предназначен для персонала и управления рестораном.\n\n<b>Выберите ваш профиль для входа:</b>`, {
+        await sendTgMessage(chatId, `👋 <b>Добро пожаловать в Altyn Kazyk!</b>\n\n<b>Выберите ваш профиль официанта для входа:</b>`, {
           reply_markup: { inline_keyboard: buttons }
         });
         return res.status(200).json({ ok: true });
