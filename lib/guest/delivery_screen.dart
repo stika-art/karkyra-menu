@@ -53,10 +53,16 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
 
       final total = preparedItems.fold<double>(0, (sum, it) => sum + ((it['price'] as double) * (it['qty'] as int)));
 
-      // 1. Сохраняем в БД и получаем ID
+      final addressText = _addressController.text.trim();
+      final phoneText = '+996${_phoneController.text.trim()}';
+      final fullContact = addressText.isNotEmpty
+          ? '$phoneText\n📍 Адрес: $addressText'
+          : phoneText;
+
+      // 1. Сохраняем в БД с полным адресом и получаем ID
       final res = await Supabase.instance.client.from('delivery_orders').insert({
         'customer_name': _nameController.text.trim(),
-        'customer_phone': '+996' + _phoneController.text.trim(),
+        'customer_phone': fullContact,
         'items': preparedItems,
         'total': total,
         'status': 'new',
@@ -64,18 +70,15 @@ class _DeliveryScreenState extends State<DeliveryScreen> {
 
       _orderId = res['id'].toString();
 
-      // 2. Уведомляем в Telegram (если включено)
+      // 2. Уведомляем в Telegram
       try {
-        if (SettingsService.telegramNotify) {
-          final msgDetails = 'Адрес: ${_addressController.text.trim()}';
-          await TelegramService.notifyDeliveryOrder(
-            orderId: _orderId,
-            name: _nameController.text.trim(),
-            phone: '+996' + _phoneController.text.trim() + '\n' + msgDetails,
-            items: preparedItems,
-            total: total,
-          );
-        }
+        await TelegramService.notifyDeliveryOrder(
+          orderId: _orderId,
+          name: _nameController.text.trim(),
+          phone: fullContact,
+          items: preparedItems,
+          total: total,
+        );
       } catch (tgErr) {
         debugPrint('TG Notify error: $tgErr');
       }

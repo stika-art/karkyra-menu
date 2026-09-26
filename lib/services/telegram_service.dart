@@ -42,36 +42,80 @@ class TelegramService {
     return null;
   }
 
+  /// Гарантирует загрузку настроек перед отправкой
+  static Future<void> ensureSettingsLoaded() async {
+    if (!SettingsService.isLoaded) {
+      try {
+        await SettingsService.load().timeout(const Duration(seconds: 3));
+      } catch (_) {}
+    }
+  }
+
   /// Отправить простое текстовое сообщение (HTML)
   static Future<Map<String, dynamic>?> sendMessage(String text, {String? customChatId}) async {
+    await ensureSettingsLoaded();
     final token = SettingsService.telegramToken;
-    final chatId = customChatId ?? SettingsService.telegramChatId;
+    final targetRaw = (customChatId != null && customChatId.isNotEmpty)
+        ? customChatId
+        : SettingsService.telegramChatId;
 
-    if (token.isEmpty || chatId.isEmpty) return null;
+    final chatIds = targetRaw
+        .split(',')
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    if (chatIds.isEmpty) chatIds.add(SettingsService.defaultAdminChatId);
 
-    try {
-      final response = await http.post(
-        Uri.parse('https://api.telegram.org/bot$token/sendMessage'),
-        body: {
-          'chat_id': chatId,
-          'text': text,
-          'parse_mode': 'HTML',
-        },
-      );
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data['ok'] == true && data['result'] != null) {
-          return {
+    Map<String, dynamic>? lastResult;
+
+    for (final chatId in chatIds) {
+      bool sent = false;
+      try {
+        final response = await http.post(
+          Uri.parse('https://api.telegram.org/bot$token/sendMessage'),
+          body: {
             'chat_id': chatId,
-            'message_id': data['result']['message_id'],
             'text': text,
-          };
+            'parse_mode': 'HTML',
+          },
+        ).timeout(const Duration(seconds: 4));
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          if (data['ok'] == true && data['result'] != null) {
+            lastResult = {
+              'chat_id': chatId,
+              'message_id': data['result']['message_id'],
+              'text': text,
+            };
+            sent = true;
+          }
+        }
+      } catch (e) {
+        print('Telegram sendMessage direct error: $e');
+      }
+
+      // Резервная отправка через Vercel прокси
+      if (!sent) {
+        try {
+          final res = await http.post(
+            Uri.parse('https://altyn-kazyk.vercel.app/api/telegram'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'action': 'send_message',
+              'chat_id': chatId,
+              'text': text,
+            }),
+          ).timeout(const Duration(seconds: 4));
+          if (res.statusCode == 200) {
+            lastResult = {'chat_id': chatId, 'message_id': 0, 'text': text};
+          }
+        } catch (e) {
+          print('Telegram proxy error: $e');
         }
       }
-    } catch (e) {
-      print('Telegram sendMessage error: $e');
     }
-    return null;
+
+    return lastResult;
   }
 
   /// Отправить сообщение с кастомной inline-клавиатурой (кнопки с callback_data или url)
@@ -80,37 +124,73 @@ class TelegramService {
     required List<List<Map<String, dynamic>>> inlineKeyboard,
     String? customChatId,
   }) async {
+    await ensureSettingsLoaded();
     final token = SettingsService.telegramToken;
-    final chatId = customChatId ?? SettingsService.telegramChatId;
+    final targetRaw = (customChatId != null && customChatId.isNotEmpty)
+        ? customChatId
+        : SettingsService.telegramChatId;
 
-    if (token.isEmpty || chatId.isEmpty) return null;
+    final chatIds = targetRaw
+        .split(',')
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    if (chatIds.isEmpty) chatIds.add(SettingsService.defaultAdminChatId);
 
-    try {
-      final response = await http.post(
-        Uri.parse('https://api.telegram.org/bot$token/sendMessage'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'chat_id': chatId,
-          'text': text,
-          'parse_mode': 'HTML',
-          'reply_markup': {'inline_keyboard': inlineKeyboard},
-        }),
-      );
+    Map<String, dynamic>? lastResult;
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data['ok'] == true && data['result'] != null) {
-          return {
+    for (final chatId in chatIds) {
+      bool sent = false;
+      try {
+        final response = await http.post(
+          Uri.parse('https://api.telegram.org/bot$token/sendMessage'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
             'chat_id': chatId,
-            'message_id': data['result']['message_id'],
             'text': text,
-          };
+            'parse_mode': 'HTML',
+            'reply_markup': {'inline_keyboard': inlineKeyboard},
+          }),
+        ).timeout(const Duration(seconds: 4));
+
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          if (data['ok'] == true && data['result'] != null) {
+            lastResult = {
+              'chat_id': chatId,
+              'message_id': data['result']['message_id'],
+              'text': text,
+            };
+            sent = true;
+          }
+        }
+      } catch (e) {
+        print('Telegram inline keyboard direct error: $e');
+      }
+
+      // Резервная отправка через Vercel прокси
+      if (!sent) {
+        try {
+          final res = await http.post(
+            Uri.parse('https://altyn-kazyk.vercel.app/api/telegram'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'action': 'send_message',
+              'chat_id': chatId,
+              'text': text,
+              'reply_markup': {'inline_keyboard': inlineKeyboard},
+            }),
+          ).timeout(const Duration(seconds: 4));
+          if (res.statusCode == 200) {
+            lastResult = {'chat_id': chatId, 'message_id': 0, 'text': text};
+          }
+        } catch (e) {
+          print('Telegram proxy inline error: $e');
         }
       }
-    } catch (e) {
-      print('Telegram inline keyboard message error: $e');
     }
-    return null;
+
+    return lastResult;
   }
 
   /// Редактировать текст и кнопки существующего Telegram-сообщения
@@ -529,13 +609,27 @@ $itemLines
     required double total,
     String? orderId,
   }) async {
+    await ensureSettingsLoaded();
+
+    String phoneStr = phone;
+    String addressStr = '';
+    if (phone.contains('📍 Адрес:')) {
+      final parts = phone.split('📍 Адрес:');
+      phoneStr = parts[0].trim();
+      addressStr = parts[1].trim();
+    } else if (phone.contains('Адрес:')) {
+      final parts = phone.split('Адрес:');
+      phoneStr = parts[0].trim();
+      addressStr = parts[1].trim();
+    }
+
     final itemLines = items.map((it) => '  • ${it['title']} x${it['qty']} — ${it['price']} сом').join('\n');
     final message = '''
 🛵 <b>НОВЫЙ ЗАКАЗ НА ДОСТАВКУ!</b>
 
-👤 Имя: <b>$name</b>
-📞 Телефон/Адрес: <b>$phone</b>
-
+👤 Клиент: <b>$name</b>
+📞 Телефон: <b>$phoneStr</b>
+${addressStr.isNotEmpty ? '📍 Адрес: <b>$addressStr</b>\n' : ''}
 $itemLines
 
 💰 <b>Итого: ${total.toStringAsFixed(0)} сом</b>
@@ -570,6 +664,8 @@ $itemLines
     String? preorderInfo,
     String? customChatId,
   }) async {
+    await ensureSettingsLoaded();
+
     final message = '''
 📅 <b>НОВАЯ БРОНЬ СТОЛА!</b>
 

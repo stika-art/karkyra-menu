@@ -33,9 +33,18 @@ class SettingsService {
     }
   }
 
+  static const String defaultBotToken = '8874121083:AAH0YfzG_M-VZ-E_oFBmDe1FhgUY3wLcA_A';
+  static const String defaultAdminChatId = '5994210246';
+
   static String get adminPassword => _cache['admin_password'] ?? '2026';
-  static String get telegramToken => _cache['telegram_token'] ?? '';
-  static String get telegramChatId => _cache['telegram_chat_id'] ?? '';
+  static String get telegramToken {
+    final t = _cache['telegram_token'];
+    return (t != null && t.trim().isNotEmpty) ? t.trim() : defaultBotToken;
+  }
+  static String get telegramChatId {
+    final c = _cache['telegram_chat_id'];
+    return (c != null && c.trim().isNotEmpty) ? c.trim() : defaultAdminChatId;
+  }
   static bool get telegramNotify => _cache['telegram_notify'] != 'false';
   static String get weeklySchedule => _cache['weekly_schedule'] ?? '{"Mon":"08:00-21:30","Tue":"08:00-21:30","Wed":"08:00-21:30","Thu":"08:00-21:30","Fri":"08:00-21:30","Sat":"08:00-21:30","Sun":"08:00-21:30"}';
   

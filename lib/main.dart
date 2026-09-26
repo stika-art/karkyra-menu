@@ -94,8 +94,10 @@ void main() async {
       debugPrint('Supabase init error: $e');
     }
 
-    // Фоновая загрузка данных
-    SettingsService.load();
+    // Загрузка настроек
+    try {
+      await SettingsService.load().timeout(const Duration(seconds: 3));
+    } catch (_) {}
     MenuDataService.load();
 
     SystemChrome.setSystemUIOverlayStyle(
@@ -3873,7 +3875,7 @@ class _BookingSheetState extends State<_BookingSheet> {
 
                   // 3. Уведомляем в Telegram с полной информацией и кнопками
                   final preorderInfo = _getPreorderSummary();
-                  if (SettingsService.telegramNotify) {
+                  try {
                     final waiterChatId = await TelegramService.getWaiterChatId(widget.table['id'].toString());
                     await TelegramService.notifyBooking(
                       bookingId: bookingId,
@@ -3884,7 +3886,9 @@ class _BookingSheetState extends State<_BookingSheet> {
                       timeRange: '${_timeController.text} — ${_endTimeController.text}',
                       preorderInfo: preorderInfo,
                     );
-                    if (waiterChatId != null && waiterChatId.isNotEmpty) {
+                    if (waiterChatId != null && 
+                        waiterChatId.isNotEmpty && 
+                        !SettingsService.telegramChatId.split(',').map((s) => s.trim()).contains(waiterChatId.trim())) {
                       await TelegramService.notifyBooking(
                         bookingId: bookingId,
                         tableLabel: widget.table['label'].toString(),
@@ -3896,6 +3900,8 @@ class _BookingSheetState extends State<_BookingSheet> {
                         customChatId: waiterChatId,
                       );
                     }
+                  } catch (tgErr) {
+                    debugPrint('Telegram booking notify error: $tgErr');
                   }
 
                   if (mounted) {

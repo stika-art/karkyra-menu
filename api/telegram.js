@@ -470,6 +470,14 @@ async function buildAdminWaitersList(showAll = false) {
 }
 
 module.exports = async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
   // Support GET for health-check and webhook installation
   if (req.method === 'GET') {
     const { setup_webhook } = req.query || {};
@@ -505,6 +513,92 @@ module.exports = async function handler(req, res) {
   }
 
   try {
+    // -------------------------------------------------------------
+    // 0. Handle Direct Client Notifications (Proxy / Fallback)
+    // -------------------------------------------------------------
+    if (body.action === 'send_message') {
+      const targetChat = body.chat_id || (await getAdminChatId()) || '5994210246';
+      const text = body.text || '';
+      const extra = {};
+      if (body.reply_markup) {
+        extra.reply_markup = body.reply_markup;
+      }
+      const chatIds = String(targetChat).split(',').map(s => s.trim()).filter(Boolean);
+      for (const cId of chatIds) {
+        await sendTgMessage(cId, text, extra);
+      }
+      return res.status(200).json({ ok: true });
+    }
+
+    if (body.action === 'notify_delivery') {
+      const adminChatId = (await getAdminChatId()) || '5994210246';
+      const { name, phone, items, total, orderId } = body;
+      let itemsText = '';
+      if (Array.isArray(items)) {
+        itemsText = items.map(it => `• ${it.title} x${it.qty} — ${it.price} сом`).join('\n');
+      }
+      let phoneStr = phone || 'Не указано';
+      let addressStr = '';
+      if (phoneStr.includes('📍 Адрес:')) {
+        const parts = phoneStr.split('📍 Адрес:');
+        phoneStr = parts[0].trim();
+        addressStr = parts[1].trim();
+      } else if (phoneStr.includes('Адрес:')) {
+        const parts = phoneStr.split('Адрес:');
+        phoneStr = parts[0].trim();
+        addressStr = parts[1].trim();
+      }
+      const msg = `🛵 <b>НОВЫЙ ЗАКАЗ НА ДОСТАВКУ!</b>\n\n` +
+        `👤 Клиент: <b>${name || 'Не указано'}</b>\n` +
+        `📞 Телефон: <b>${phoneStr}</b>\n` +
+        (addressStr ? `📍 Адрес: <b>${addressStr}</b>\n` : '') +
+        `\n${itemsText}\n\n` +
+        `💰 <b>Итого: ${Number(total || 0).toLocaleString('ru-RU')} сом</b>`;
+      
+      const buttons = orderId ? [
+        [
+          { text: '👨‍🍳 Принять доставку', callback_data: `deliv_status:${orderId}:processing` },
+          { text: '❌ Отменить', callback_data: `deliv_status:${orderId}:cancelled` }
+        ]
+      ] : null;
+
+      const extra = buttons ? { reply_markup: { inline_keyboard: buttons } } : {};
+      const adminIds = String(adminChatId).split(',').map(s => s.trim()).filter(Boolean);
+      for (const cId of adminIds) {
+        await sendTgMessage(cId, msg, extra);
+      }
+      return res.status(200).json({ ok: true });
+    }
+
+    if (body.action === 'notify_booking') {
+      const adminChatId = (await getAdminChatId()) || '5994210246';
+      const { bookingId, tableLabel, name, phone, guests, timeRange, preorderInfo, customChatId } = body;
+      const msg = `📅 <b>НОВАЯ БРОНЬ СТОЛА!</b>\n\n` +
+        `🪑 Стол: <b>№${tableLabel}</b>\n` +
+        `👤 Гость: <b>${name}</b>\n` +
+        `📞 Телефон: <b>${phone}</b>\n` +
+        `👥 Количество гостей: <b>${guests} чел.</b>\n` +
+        `⏰ Время: <b>${timeRange}</b>\n` +
+        (preorderInfo ? `\n🍽 <b>Предзаказ:</b> ${preorderInfo}\n` : '');
+
+      const buttons = [
+        [
+          { text: '✅ Подтвердить бронь', callback_data: `book_status:${bookingId}:accept` },
+          { text: '❌ Отклонить', callback_data: `book_status:${bookingId}:cancel` }
+        ]
+      ];
+      const extra = { reply_markup: { inline_keyboard: buttons } };
+
+      if (customChatId) {
+        await sendTgMessage(customChatId, msg, extra);
+      } else {
+        const adminIds = String(adminChatId).split(',').map(s => s.trim()).filter(Boolean);
+        for (const cId of adminIds) {
+          await sendTgMessage(cId, msg, extra);
+        }
+      }
+      return res.status(200).json({ ok: true });
+    }
     // -------------------------------------------------------------
     // 1. Handle CALLBACK QUERY (Inline buttons)
     // -------------------------------------------------------------
@@ -1362,10 +1456,23 @@ module.exports = async function handler(req, res) {
               statusRu = d.status;
             }
 
+            let phoneStr = d.customer_phone || 'Не указано';
+            let addressStr = '';
+            if (phoneStr.includes('📍 Адрес:')) {
+              const parts = phoneStr.split('📍 Адрес:');
+              phoneStr = parts[0].trim();
+              addressStr = parts[1].trim();
+            } else if (phoneStr.includes('Адрес:')) {
+              const parts = phoneStr.split('Адрес:');
+              phoneStr = parts[0].trim();
+              addressStr = parts[1].trim();
+            }
+
             const total = Number(d.total || 0).toLocaleString('ru-RU');
             const msgText = `🛵 <b>Заказ на доставку #${shortId}</b> (${time})\n\n` +
               `👤 Клиент: <b>${d.customer_name || 'Не указано'}</b>\n` +
-              `📞 Контакты/Адрес: <b>${d.customer_phone || 'Не указано'}</b>\n` +
+              `📞 Телефон: <b>${phoneStr}</b>\n` +
+              (addressStr ? `📍 Адрес: <b>${addressStr}</b>\n` : '') +
               `📌 Статус: ${statusRu}\n\n` +
               `${itemsText ? itemsText + '\n\n' : ''}` +
               `💰 <b>Итого: ${total} сом</b>`;

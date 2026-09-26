@@ -808,17 +808,22 @@ class _OrdersScreenState extends State<OrdersScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(order['customer_name']?.toString() ?? 'Без имени',
-                          style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-                        Text(order['customer_phone']?.toString() ?? '',
-                          style: GoogleFonts.outfit(color: const Color(0xFFD4A043), fontSize: 14)),
-                      ],
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(order['customer_name']?.toString() ?? 'Без имени',
+                            style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                          const SizedBox(height: 2),
+                          Text(order['customer_phone']?.toString() ?? '',
+                            style: GoogleFonts.outfit(color: const Color(0xFFD4A043), fontSize: 13, height: 1.3)),
+                        ],
+                      ),
                     ),
+                    const SizedBox(width: 8),
                     _statusChip(status),
                   ],
                 ),
